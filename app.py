@@ -61,8 +61,8 @@ if uploaded_file:
         if '日期' not in df.columns:
             st.error("Excel中未找到'日期'列，请检查表头！")
         else:
-        # 确保日期格式正确
-        df['日期'] = pd.to_datetime(df['日期'])
+            # 确保日期格式正确
+            df['日期'] = pd.to_datetime(df['日期'])
             
             # 3. 计算期数和相对天数
             # 应用函数，生成两列新数据
