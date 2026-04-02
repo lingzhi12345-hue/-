@@ -4,7 +4,7 @@ import plotly.graph_objects as go
 
 # --- 页面基础配置 ---
 st.set_page_config(page_title="数据趋势分析看板", layout="wide")
-st.title("📊 播放与供给数据分析看板")
+st.title("📊 光遇绿灯专区监测看板")
 st.markdown("请在上传区上传包含 **日期、播放量、供给量** 的 Excel 文件。")
 
 # --- 核心功能函数 ---
@@ -100,6 +100,16 @@ if uploaded_file is not None:
     try:
         # 2. 读取数据
         df = pd.read_excel(uploaded_file)
+
+        # --- 新增：字段映射 ---
+        # 将 Excel 中的原始列名映射为代码需要的标准列名
+        rename_dict = {
+            "大盘作者贡献播放次数": "播放量",
+            "游戏投稿UV": "供给量"
+        }
+        # 应用映射
+        df.rename(columns=rename_dict, inplace=True)
+        # ---------------------
         
         # 简单的数据清洗：尝试自动识别日期列（假设第一列是日期）或者让用户选择
         # 这里为了简单，假设列名为 '日期'，如果不是，取第一列
