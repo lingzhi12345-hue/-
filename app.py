@@ -53,6 +53,7 @@ if uploaded_file:
         rename_dict = {
             "大盘作者贡献播放次数": "播放量",
             "游戏投稿UV": "供给量"
+            "指标日期": "日期"
         }
         df.rename(columns=rename_dict, inplace=True)
         
