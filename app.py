@@ -2,10 +2,15 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
+import os  # 新增：用于检查文件是否存在
+import shutil  # 新增：用于保存文件
 
 # --- 配置部分 ---
 st.set_page_config(layout="wide", page_title="光遇绿灯专区监测看板")
 st.title("光遇绿灯专区监测看板")
+
+# --- 新增：定义共享文件路径 ---
+SHARED_FILE_PATH = "shared_uploaded_data.xlsx"
 
 # --- 功能函数 ---
 
@@ -37,21 +42,49 @@ def get_period_info(date):
     if datetime(year, 3, 16) <= date <= (end_p2 + timedelta(days=15)):
         delta = (date - start_p2).days
         return "第二期", delta
-        
+    
     return None, None
 
 # --- 主程序 ---
 
-uploaded_file = st.file_uploader("上传 Excel 文件", type=['xlsx', 'xls'])
+# 界面提示：告知用户当前状态
+st.info("说明：上传文件后，数据将共享给所有访问此链接的人。刷新页面可查看他人最新上传的数据。")
 
-if uploaded_file:
+uploaded_file = st.file_uploader("上传 Excel 文件 (上传将覆盖当前共享数据)", type=['xlsx', 'xls'])
+
+# --- 新增：共享逻辑核心代码块 ---
+source_file = None
+
+# 情况1：如果有用户上传了新文件
+if uploaded_file is not None:
+    try:
+        # 将上传的文件保存到本地，作为共享文件
+        with open(SHARED_FILE_PATH, "wb") as f:
+            shutil.copyfileobj(uploaded_file, f)
+        st.success("文件已更新并共享！所有用户刷新页面即可看到最新数据。")
+        source_file = uploaded_file  # 当前会话直接使用上传的文件对象
+    except Exception as e:
+        st.error(f"保存共享文件失败: {e}。可能是权限问题，请查看下文自检部分。")
+        source_file = uploaded_file # 即使保存失败，也尝试处理当前上传的文件
+
+# 情况2：如果没有上传文件，但本地存在之前共享的文件
+elif os.path.exists(SHARED_FILE_PATH):
+    st.info(f"当前展示的是共享数据文件。如需更新请上传新文件。")
+    source_file = SHARED_FILE_PATH # 读取本地路径
+
+# 情况3：既没上传，也没共享文件
+else:
+    st.warning("暂无数据，请上传 Excel 文件。")
+
+# --- 原有处理逻辑 (仅将 uploaded_file 替换为 source_file) ---
+if source_file:
     try:
         # 1. 读取数据
-        df = pd.read_excel(uploaded_file)
+        df = pd.read_excel(source_file)
         
         # 2. 字段映射
         rename_dict = {
-            "指标日期": "日期",  # 新增映射
+            "指标日期": "日期", # 新增映射
             "大盘作者贡献播放次数": "播放量",
             "游戏投稿UV": "供给量"
         }
@@ -104,7 +137,7 @@ if uploaded_file:
                 # 定义两期的样式
                 styles = {
                     "第一期": {'dash': 'solid', 'color': '#1f77b4'}, # 实线蓝色
-                    "第二期": {'dash': 'dash', 'color': '#ff7f0e'}  # 虚线橙色
+                    "第二期": {'dash': 'dash', 'color': '#ff7f0e'} # 虚线橙色
                 }
                 
                 for period_name in ["第一期", "第二期"]:
@@ -136,7 +169,7 @@ if uploaded_file:
                 
                 if is_percentage:
                     fig.update_layout(yaxis_tickformat='.1%')
-                    
+                
                 st.plotly_chart(fig, use_container_width=True)
 
             # 展示图表
@@ -144,11 +177,11 @@ if uploaded_file:
             
             with col1:
                 plot_chart(df_final, '播放量', '播放量趋势对比')
-                plot_chart(df_final, '播放量_增幅', '播放量增幅对比 (vs Day 0)', is_percentage=True)
-                
+                plot_chart(df_final, '播放量_增幅', '播放量增幅对比', is_percentage=True)
+            
             with col2:
                 plot_chart(df_final, '供给量', '供给量趋势对比')
-                plot_chart(df_final, '供给量_增幅', '供给量增幅对比 (vs Day 0)', is_percentage=True)
+                plot_chart(df_final, '供给量_增幅', '供给量增幅对比', is_percentage=True)
             
             # 6. 数据预览 (可选)
             with st.expander("查看处理后的详细数据"):
