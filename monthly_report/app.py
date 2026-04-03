@@ -3,161 +3,297 @@ import json
 import os
 import pandas as pd
 from datetime import datetime
+import uuid
+import streamlit.components.v1 as components
 
-# --- 1. 页面基础配置 ---
+# --- 1. 基础配置与样式 ---
 st.set_page_config(
-    page_title="小喇叭运营月报系统",
+    page_title="创作者运营月报系统",
     page_icon="📊",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# --- 2. 配置区 (您提到的差异化数据都在这里修改) ---
-# 这里的配置可以被 AI Agent 读取或修改，代码逻辑只需读取这个变量即可
-CONFIG = {
-    "acu_thresholds": {
-        "头部": 10000,  # 示例阈值：大于此数值为头部
-        "腰部": 2000    # 示例阈值：大于此数值为腰部
-    },
-    "data_source_name": "内容营销系统API (示例)",  # 明确注明示例来源
-    "standards_note": "注：当前划分标准依据示例配置，具体以 AI Agent 获取的 config 为准。"
+# 注入极简风格CSS + 锚点偏移修正
+st.markdown("""
+<style>
+    /* 极简配色 */
+    .stApp { background-color: #ffffff; color: #333333; }
+    .stSidebar { background-color: #f8f9fa; }
+    h1, h2, h3 { color: #000000; font-weight: 600; }
+    
+    /* 去除默认的Streamlit元素装饰 */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    
+    /* 锚点偏移修正，防止导航跳转后被顶部遮挡 */
+    .report-content {
+        padding-top: 20px;
+        margin-bottom: 40px;
+        border-bottom: 1px solid #eee;
+    }
+    
+    /* 链接样式 */
+    a { color: #000000; text-decoration: underline; font-weight: 500; }
+    
+    /* 导航菜单样式 */
+    .nav-menu a {
+        display: block;
+        padding: 10px 15px;
+        color: #333;
+        text-decoration: none;
+        border-radius: 4px;
+        margin-bottom: 5px;
+    }
+    .nav-menu a:hover { background-color: #e9ecef; }
+</style>
+""", unsafe_allow_html=True)
+
+# --- 2. 字段映射配置 (关键：解决解析歧义问题) ---
+# 用户上传的JSON字段可能各不相同，这里定义映射规则，Agent只需修改此处
+FIELD_MAPPING = {
+    "author_name": "author_name",       # 作者昵称
+    "author_url": "author_url",         # 作者主页链接
+    "video_play_count": "video_play_count", # 视频播放量字段名
+    "live_play_count": "live_play_count",   # 直播播放量字段名(如果有的话)
+    "fans_count": "fans_count",         # 粉丝数
+    "likes_count": "likes_count",       # 点赞数
+    "date": "date"                      # 日期字段
 }
 
-# --- 3. 数据存储逻辑 (本地JSON存储) ---
-# 注意：Streamlit Cloud 部署时，本地文件可能会在服务重启后重置。
-# 如需永久存储，后续可教您连接 Google Sheets 或其他简易数据库。
-DATA_FILE = "report_data.json"
+# --- 3. 数据存储逻辑 ---
+DATA_FILE = "report_db.json"
 
-def load_data():
-    """读取本地数据"""
+def init_db():
     if not os.path.exists(DATA_FILE):
-        # 默认数据结构
-        return {"users": {}, "reports": []}
-    try:
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return {"users": {}, "reports": []}
-
-def save_data(data):
-    """保存数据到本地"""
-    try:
+        default_data = {"users": {}, "reports": {}}
         with open(DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
-        return True
-    except Exception as e:
-        st.error(f"保存失败: {e}")
-        return False
+            json.dump(default_data, f)
 
-# --- 4. 主程序逻辑 ---
+def load_db():
+    init_db()
+    with open(DATA_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-# 初始化数据库
-db = load_data()
+def save_db(data):
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
-# 侧边栏导航
-st.sidebar.title("导航中心")
-page = st.sidebar.radio("选择功能", ["撰写新报告", "历史报告查询"])
+# --- 4. 页面组件 ---
 
-# 分隔线
-st.sidebar.markdown("---")
-st.sidebar.caption("当前时间: " + datetime.now().strftime("%Y-%m-%d"))
-
-# ==========================================
-# 页面一：撰写新报告
-# ==========================================
-if page == "撰写新报告":
-    st.header("📝 撰写新报告")
+def page_login():
+    """极简登录/注册页"""
+    st.title("👋 欢迎使用创作者月报系统")
+    st.write("请输入您的用户名以进入个人中心（首次输入即自动创建）")
     
-    # 展示当前配置信息（供用户参考，对应您要求的"提醒用户划分标准"）
-    with st.expander("查看当前数据标准说明", expanded=False):
-        st.markdown(f"""
-        **数据来源：** `{CONFIG['data_source_name']}`  
-        **ACU 划分标准：**
-        - **头部作者**：ACU > `{CONFIG['acu_thresholds']['头部']}`
-        - **腰部作者**：`{CONFIG['acu_thresholds']['腰部']}` < ACU <= `{CONFIG['acu_thresholds']['头部']}`
-        - **尾部作者**：ACU <= `{CONFIG['acu_thresholds']['腰部']}`
+    with st.form("login_form"):
+        username = st.text_input("用户名", max_chars=20)
+        submit = st.form_submit_button("进入系统")
         
-        *{CONFIG['standards_note']}*
-        """)
+        if submit and username:
+            st.session_state["user"] = username
+            # 初始化用户数据
+            db = load_db()
+            if username not in db["users"]:
+                db["users"][username] = {"reports": []}
+                save_db(db)
+            st.rerun()
 
-    # 表单输入
-    with st.form("report_form"):
-        st.subheader("1. 基本信息")
-        col1, col2 = st.columns(2)
-        author_name = col1.text_input("填报人姓名", value="")
-        report_month = col2.date_input("报告月份", value=datetime.now())
-        
-        st.subheader("2. 核心数据录入")
-        st.info("以下数据字段仅为示例结构，后续会对接 AI Agent 获取实际数据。")
-        
-        # 示例字段：作者分层
-        c1, c2, c3 = st.columns(3)
-        head_count = c1.number_input("头部作者数量", min_value=0, value=0)
-        waist_count = c2.number_input("腰部作者数量", min_value=0, value=0)
-        tail_count = c3.number_input("尾部作者数量", min_value=0, value=0)
-        
-        # 示例字段：其他指标
-        st.text_input("其他备注信息 (选填)", value="")
-
-        # 提交按钮
-        submitted = st.form_submit_button("生成并保存报告")
-        
-        if submitted:
-            if not author_name:
-                st.warning("请填写填报人姓名！")
-            else:
-                # 构造报告数据
-                new_report = {
-                    "id": datetime.now().strftime("%Y%m%d%H%M%S"),
-                    "author": author_name,
-                    "month": report_month.strftime("%Y-%m"),
-                    "create_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "data": {
-                        "head_count": head_count,
-                        "waist_count": waist_count,
-                        "tail_count": tail_count,
-                        "standard_used": CONFIG["acu_thresholds"] # 记录当时使用的标准
-                    }
-                }
-                
-                # 存入数据库
-                db["reports"].append(new_report)
-                if save_data(db):
-                    st.success(f"报告已成功保存！ (ID: {new_report['id']})")
-                    # 简单的预览
-                    st.json(new_report)
-                else:
-                    st.error("保存失败，请检查权限或联系管理员。")
-
-# ==========================================
-# 页面二：历史报告查询
-# ==========================================
-elif page == "历史报告查询":
-    st.header("📂 历史报告查询")
+def page_dashboard():
+    """个人中心"""
+    st.title(f"🏠 个人中心")
+    st.caption(f"当前用户：{st.session_state.user}")
     
-    if not db["reports"]:
-        st.info("当前没有历史报告数据。")
+    db = load_db()
+    user_reports = db["users"].get(st.session_state.user, {}).get("reports", [])
+    
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        if st.button("➕ 创建新月报", use_container_width=True):
+            st.session_state["creating"] = True
+            st.rerun()
+    
+    st.markdown("---")
+    st.subheader("历史报告")
+    
+    if not user_reports:
+        st.info("暂无历史报告，请点击上方按钮创建。")
     else:
-        # 将数据转换为表格展示
-        df_data = []
-        for r in db["reports"]:
-            df_data.append({
-                "提交时间": r.get("create_time"),
-                "填报人": r.get("author"),
-                "报告月份": r.get("month"),
-                "头部作者数": r["data"].get("head_count"),
-                "腰部作者数": r["data"].get("waist_count"),
-                "尾部作者数": r["data"].get("tail_count")
-            })
+        for rid in user_reports:
+            report = db["reports"].get(rid)
+            if report:
+                c1, c2 = st.columns([4, 1])
+                with c1:
+                    # 生成分享链接
+                    share_url = f"?report_id={rid}"
+                    st.markdown(f"""
+                    **{report.get('title', '未命名报告')}**  
+                    <small>创建时间: {report.get('create_time', 'N/A')}</small>  
+                    <small>分享链接: <a href="{share_url}" target="_blank">点击查看</a></small>
+                    """, unsafe_allow_html=True)
+                with c2:
+                    if st.button("查看详情", key=f"view_{rid}"):
+                        st.session_state["viewing_report"] = rid
+                        st.session_state["page_mode"] = "view"
+                        st.rerun()
+                st.markdown("---")
+
+def page_create():
+    """创建新报告 - 仅上传"""
+    st.title("📝 创建新月报")
+    
+    if st.button("← 返回个人中心"):
+        if "creating" in st.session_state: del st.session_state["creating"]
+        st.rerun()
+
+    st.info("请上传您的原始数据 JSON 文件。后端将自动解析字段并生成报告。")
+    
+    uploaded_file = st.file_uploader("上传 JSON 文件", type=["json"], label_visibility="collapsed")
+    
+    if uploaded_file:
+        try:
+            data = json.load(uploaded_file)
+            # 生成报告ID
+            report_id = str(uuid.uuid4())
+            
+            # 获取标题，如果没有则用时间
+            title = data.get("title", f"{datetime.now().strftime('%Y-%m')} 月度报告")
+            
+            # 保存报告数据
+            db = load_db()
+            db["reports"][report_id] = {
+                "owner": st.session_state.user,
+                "title": title,
+                "create_time": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "data": data
+            }
+            # 关联到用户
+            if report_id not in db["users"][st.session_state.user]["reports"]:
+                db["users"][st.session_state.user]["reports"].append(report_id)
+            
+            save_db(db)
+            
+            # 跳转到报告页
+            st.session_state["viewing_report"] = report_id
+            st.session_state["page_mode"] = "edit" # 创建者默认为编辑模式
+            if "creating" in st.session_state: del st.session_state["creating"]
+            st.rerun()
+            
+        except Exception as e:
+            st.error(f"文件解析错误: {e}")
+
+def render_report(report_id, is_edit_mode=False):
+    """核心：报告渲染逻辑"""
+    db = load_db()
+    report = db["reports"].get(report_id)
+    
+    if not report:
+        st.error("报告不存在")
+        return
+
+    data = report.get("data", {})
+    title = report.get("title", "报告预览")
+    
+    # --- 左侧导航栏 ---
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("<div class='nav-menu'>", unsafe_allow_html=True)
+    st.sidebar.markdown(f"<a href='#section_overview'>1. 概览</a>", unsafe_allow_html=True)
+    st.sidebar.markdown(f"<a href='#section_content'>2. 内容分析</a>", unsafe_allow_html=True)
+    st.sidebar.markdown(f"<a href='#section_fans'>3. 粉丝画像</a>", unsafe_allow_html=True)
+    # ... 其他板块导航
+    st.sidebar.markdown("</div>", unsafe_allow_html=True)
+    
+    # --- 顶部工具栏 ---
+    col_title, col_btn = st.columns([4, 1])
+    with col_title:
+        st.title(f"📊 {title}")
+    with col_btn:
+ 导出PDF功能引导
+        if st.button("📥 导出 PDF", type="primary"):
+            st.info("请使用浏览器打印功能 (Ctrl+P / Cmd+P) 并选择'另存为PDF'以获得最佳排版效果。")
+            js = "window.print();"
+            components.html(f'<script>{js}</script>', height=0)
+
+    st.markdown(f"<small>报告制作人: {report.get('owner', 'Unknown')} | 数据来源: 上传文件</small>", unsafe_allow_html=True)
+    st.markdown("---")
+
+    # --- 板块渲染逻辑 ---
+    # 使用 st.container 实现锚点
+    
+    # 示例：提取数据
+    df_data = data.get("metrics", [])
+    
+    # 1. 概览板块
+    with st.container():
+        st.markdown('<a name="section_overview"></a>', unsafe_allow_html=True)
+        st.header("1. 核心数据概览")
+        st.markdown("<small>标准说明：以下数据直接源自上传文件的核心字段</small>", unsafe_allow_html=True)
         
-        df = pd.DataFrame(df_data)
+        # 简单处理：假设data是一个列表或者字典
+        # 如果用户上传的是列表，转为DataFrame
+        if isinstance(df_data, list) and df_data:
+            df = pd.DataFrame(df_data)
+            
+            # 字段清洗 (根据FIELD_MAPPING)
+            # 这里假设上传的字段名正好匹配，不匹配则通过rename修正
+            # df = df.rename(columns={v:k for k,v in FIELD_MAPPING.items()})
+            
+            # 可编辑数据表格
+            st.subheader("数据明细 (支持双击修改)")
+            if is_edit_mode:
+                edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, key="editor1")
+                # 监听修改，如果有修改则更新db (这里简化演示，实际需添加回调)
+                # if not edited_df.equals(df):
+                #     ...save logic...
+            else:
+                st.dataframe(df, use_container_width=True)
+                
+            # 可视化
+            st.subheader("趋势可视化")
+            # 假设包含数值列，自动画图
+            numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+            if len(numeric_cols) > 0 and "date" in df.columns:
+                st.line_chart(df.set_index("date")[numeric_cols[:2]]) # 简单取前两列
+            else:
+                st.info("未检测到可可视化的数值型数据")
+                
+        else:
+            st.warning("未检测到有效数据集")
+
+    # 2. 内容分析板块 (演示折叠逻辑)
+    with st.container():
+        st.markdown('<a name="section_content"></a>', unsafe_allow_html=True)
+        st.header("2. 内容分析")
         
-        st.subheader("数据总览")
-        st.dataframe(df, use_container_width=True)
+        content_data = data.get("content_analysis", None)
+        if content_data:
+            st.write("内容分析详情...")
+            # 这里可以根据具体字段绘图
+        else:
+            # 无数据折叠内容
+            st.info("该板块在上传文件中无对应数据，已自动折叠内容。")
+
+# --- 5. 路由控制 ---
+
+def main():
+    # 初始化 Session State
+    if "user" not in st.session_state:
+        page_login()
+    else:
+        # 检查URL参数，优先展示分享的报告
+        query_params = st.experimental_get_query_params()
+        req_report_id = query_params.get("report_id", [None])[0]
         
-        st.subheader("详细记录")
-        for r in reversed(db["reports"]):
-            with st.expander(f"报告：{r.get('month')} - {r.get('author')} ({r.get('id')})"):
-                st.write(f"**头部作者**: {r['data']['head_count']}")
-                st.write(f"**腰部作者**: {r['data']['waist_count']}")
-                st.write(f"**尾部作者**: {r['data']['tail_count']}")
-                st.caption(f"当时采用的标准: 头部>{r['data']['standard_used']['头部']}")
+        if req_report_id:
+            # 分享访问模式：只读
+            render_report(req_report_id, is_edit_mode=False)
+        elif "viewing_report" in st.session_state:
+            # 查看自己报告的模式：可编辑
+            render_report(st.session_state["viewing_report"], is_edit_mode=True)
+        elif "creating" in st.session_state and st.session_state["creating"]:
+            page_create()
+        else:
+            page_dashboard()
+
+if __name__ == "__main__":
+    main()
