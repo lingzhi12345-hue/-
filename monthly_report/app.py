@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-小喇叭创作者运营月报系统 v1.2
-修复：折线图日期格式兼容问题
+小喇叭创作者运营月报系统 v2.4.0
+优化版：图表优化、表格改卡片、左侧导航、时间节点可视化
 """
 
 import streamlit as st
@@ -1019,7 +1019,7 @@ if s1.get('enabled', True):
         
         events = s1.get('daily_trend', {}).get('events', [])
         fig = create_line_chart(dates, posts, y_label="投稿量", events=events)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key="chart_daily_trend")
         
         # 分平台数据（饼图）
         by_platform = s1.get('by_platform', {})
@@ -1040,12 +1040,12 @@ if s1.get('enabled', True):
                 st.markdown('<div class="subsection-title">投稿量占比</div>', unsafe_allow_html=True)
                 pie_data = [{'label': p['platform'], 'value': p['posts']} for p in by_platform['table']]
                 fig = create_pie_chart(pie_data)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key="chart_platform_posts")
             with col2:
                 st.markdown('<div class="subsection-title">播放量占比</div>', unsafe_allow_html=True)
                 # 播放量占比用同样的饼图
                 fig = create_pie_chart(pie_data)  # 这里简化处理
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key="chart_platform_plays")
 
 # =============================================================================
 # 板块二：创作者维度
@@ -1130,7 +1130,6 @@ if s3.get('enabled', True):
         # 爆款稿件Top10（卡片）
         videos = s3.get('viral_videos_top10', {})
         if videos.get('rows'):
-
             st.markdown(f'<div class="subsection-title">爆款稿件 Top 10（≥{s3.get("viral_threshold", 50000)//10000}万播放）</div>', unsafe_allow_html=True)
             for i, row in enumerate(videos['rows'][:5], 1):  # 展示Top5
                 render_video_card(row, row.get('rank', i))
@@ -1153,7 +1152,7 @@ if s3.get('enabled', True):
             # 饼图
             if content_type.get('pie_data'):
                 fig = create_pie_chart(content_type['pie_data'], title="爆款内容类型分布")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key="chart_content_type")
 
 # =============================================================================
 # 板块四：活动维度
@@ -1234,7 +1233,7 @@ if s5.get('enabled', False):
             # 饼图
             if tier.get('pie_data'):
                 fig = create_pie_chart(tier['pie_data'], title="主播分层分布")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key="chart_streamer_tier")
         
         # Top主播（卡片）
         top = s5.get('top_streamers', {})
@@ -1277,7 +1276,7 @@ if s6.get('enabled', False):
                 {'label': '不活跃', 'value': active.get('inactive', 0)}
             ]
             fig = create_pie_chart(pie_data, title="活跃人数分布")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="chart_core_active")
         
         # 播放量贡献占比（饼图）
         contrib = s6.get('contribution_pie', {})
@@ -1288,7 +1287,7 @@ if s6.get('enabled', False):
                 {'label': '其他作者', 'value': contrib.get('others', 0)}
             ]
             fig = create_pie_chart(pie_data, title="播放量贡献分布")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="chart_core_contrib")
 
 elif s6.get('enabled') is False:
     with st.expander("六、核心作者分析", expanded=False):
@@ -1315,7 +1314,7 @@ if s7.get('enabled', True):
 # 页脚
 # =============================================================================
 st.markdown("---")
-st.markdown(f'<div style="text-align: center; color: #9CA3AF; font-size: 11px;">创作者运营月报系统 v1.2 ｜ {datetime.now().strftime("%Y-%m-%d %H:%M")}</div>', unsafe_allow_html=True)
+st.markdown(f'<div style="text-align: center; color: #9CA3AF; font-size: 11px;">创作者运营月报系统 v2.4.0 ｜ {datetime.now().strftime("%Y-%m-%d %H:%M")}</div>', unsafe_allow_html=True)
 
 # =============================================================================
 # PDF 导出处理
