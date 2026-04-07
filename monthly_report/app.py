@@ -597,7 +597,7 @@ def create_dual_bar_chart(df: pd.DataFrame, title: str = ""):
             fig.add_trace(go.Bar(
                 x=df.index,
                 y=df[cols[1]],
-                name=cols[1]],
+                name=cols[1],
                 marker_color='#93C5FD'
             ))
     
