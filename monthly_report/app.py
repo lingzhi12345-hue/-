@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 小喇叭创作者运营月报系统 v2.6.0
-- 导出HTML功能
-- 条均播放降低 Top 10
+- 导出完整HTML功能
+- 条均播放降低Top10
 - 直播&核心作者KPI扩充
 - 表格改卡片
-- 作者卡片横向紧凑布局
+- 横向紧凑卡片布局
 """
 
 import streamlit as st
@@ -19,7 +19,7 @@ import os
 import base64
 from datetime import datetime
 from typing import Dict, List, Optional
-from io import StringIO
+from io import BytesIO
 
 # =============================================================================
 # 1. 页面配置
@@ -41,7 +41,7 @@ os.makedirs(REPORTS_DIR, exist_ok=True)
 # =============================================================================
 # 3. 样式
 # =============================================================================
-st.markdown("""
+CSS_STYLES = """
 <style>
     .stApp { background-color: #ffffff; }
     #MainMenu {visibility: hidden;}
@@ -50,15 +50,6 @@ st.markdown("""
     
     /* 隐藏侧边栏 */
     section[data-testid="stSidebar"] {display: none;}
-    
-    /* 顶部操作区紧凑 */
-    .top-toolbar {
-        background: #F9FAFB;
-        border-radius: 8px;
-        padding: 10px 16px;
-        margin-bottom: 16px;
-        border: 1px solid #E5E7EB;
-    }
     
     /* 板块标题 */
     .section-title {
@@ -161,7 +152,7 @@ st.markdown("""
         padding-left: 12px;
     }
     
-    /* 横向作者卡片 - 细长紧凑 */
+    /* 横向作者卡片 */
     .author-card-h {
         background: #F9FAFB;
         border-radius: 6px;
@@ -194,11 +185,6 @@ st.markdown("""
         font-weight: 600;
         color: #1B4FD8;
         min-width: 70px;
-    }
-    .author-chg-h {
-        font-size: 11px;
-        min-width: 60px;
-        text-align: right;
     }
     
     /* 横向作品卡片 */
@@ -239,7 +225,7 @@ st.markdown("""
         text-align: right;
     }
     
-    /* 表格转卡片 - 分层卡片 */
+    /* 分层卡片 */
     .tier-card {
         background: #F9FAFB;
         border-radius: 6px;
@@ -291,7 +277,41 @@ st.markdown("""
         line-height: 1.8;
     }
 </style>
-""", unsafe_allow_html=True)
+"""
+
+st.markdown(CSS_STYLES, unsafe_allow_html=True)
+
+# HTML导出样式（独立，用于生成静态HTML）
+HTML_STYLES = """
+<style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #fff; color: #374151; line-height: 1.6; max-width: 1200px; margin: 0 auto; padding: 20px; }
+    .section-title { font-size: 18px; font-weight: 700; color: #1B4FD8; margin: 24px 0 12px 0; padding-bottom: 8px; border-bottom: 2px solid #E8EFFF; }
+    .subsection-title { font-size: 14px; font-weight: 600; color: #374151; margin: 16px 0 10px 0; }
+    .data-source { font-size: 11px; color: #6B7280; margin-bottom: 12px; padding: 4px 10px; background: #F9FAFB; border-radius: 4px; border-left: 3px solid #D1D5DB; display: inline-block; }
+    .insight-box { background: #F0F4FF; border-radius: 8px; padding: 14px 18px; margin: 12px 0; border-left: 4px solid #1B4FD8; font-size: 13px; line-height: 1.8; }
+    .insight-box .risk { color: #DC2626; font-size: 12px; margin-top: 8px; }
+    .summary-box { background: rgba(27, 79, 216, 0.1); border-radius: 8px; padding: 16px 20px; margin: 12px 0; border-left: 4px solid #1B4FD8; font-size: 13px; line-height: 1.8; }
+    .kpi-row { display: flex; gap: 16px; margin: 12px 0; flex-wrap: wrap; }
+    .kpi-card { background: #F5F8FF; border-radius: 10px; padding: 12px; border: 1px solid #E0E8FF; text-align: center; flex: 1; min-width: 150px; }
+    .kpi-label { font-size: 11px; color: #6B7280; margin-bottom: 4px; }
+    .kpi-value { font-size: 20px; font-weight: 700; color: #1B4FD8; margin-bottom: 2px; }
+    .kpi-sub { font-size: 10px; color: #6B7280; }
+    .up { color: #16A34A; font-weight: 600; }
+    .down { color: #DC2626; font-weight: 600; }
+    a { color: #1B4FD8; text-decoration: none; }
+    .tier-card, .author-card-h, .video-card-h { background: #F9FAFB; border-radius: 6px; padding: 10px 14px; border: 1px solid #E5E7EB; margin: 4px 0; display: flex; align-items: center; gap: 16px; font-size: 12px; }
+    .tier-name, .author-name-h, .video-title-h { font-weight: 600; color: #374151; min-width: 120px; }
+    .tier-value { font-weight: 700; color: #1B4FD8; min-width: 50px; text-align: center; }
+    .tier-pct, .tier-chg { color: #6B7280; min-width: 50px; }
+    .activity-card { background: #F5F8FF; border-radius: 8px; padding: 14px 18px; border: 1px solid #E0E8FF; margin: 8px 0; }
+    .activity-name { font-size: 14px; font-weight: 600; color: #1B4FD8; margin-bottom: 10px; }
+    .todo-card { background: #F5F8FF; border-radius: 8px; padding: 14px 18px; border: 1px solid #E0E8FF; margin: 8px 0; }
+    .todo-title { font-size: 13px; font-weight: 600; color: #1B4FD8; margin-bottom: 8px; }
+    .todo-item { font-size: 12px; color: #374151; line-height: 1.8; padding-left: 12px; }
+    .chart-placeholder { background: #F3F4F6; border-radius: 8px; padding: 40px; text-align: center; color: #6B7280; margin: 12px 0; }
+    .footer { text-align: center; color: #9CA3AF; font-size: 11px; margin-top: 20px; padding-top: 20px; border-top: 1px solid #E5E7EB; }
+</style>
+"""
 
 # =============================================================================
 # 4. Session State
@@ -311,61 +331,61 @@ def safe_get(data: Dict, keys: str, default=None):
         return result if result != {} else default
     except: return default
 
-def render_insight_box(insight: str, risk: str = None):
-    if not insight: return
+def render_insight_box(insight: str, risk: str = None) -> str:
+    if not insight: return ""
     html = f'<div class="insight-box">{insight}'
     if risk: html += f'<div class="risk">⚠️ 风险提示：{risk}</div>'
     html += '</div>'
-    st.markdown(html, unsafe_allow_html=True)
+    return html
 
-def render_kpi_cards(items: List[Dict], cols: int = 3):
-    if not items: return
-    columns = st.columns(cols)
-    for i, item in enumerate(items):
-        with columns[i % cols]:
-            label = item.get('label', '-')
-            value = item.get('value_display', str(item.get('value', '-')))
-            note = item.get('note', '')
-            direction = item.get('change_direction', '')
-            pct = item.get('change_pct')
-            prev = item.get('prev_display', '')
-            
-            if pct is not None:
-                arrow = '▲' if direction == 'up' else '▼' if direction == 'down' else ''
-                color = 'up' if direction == 'up' else 'down' if direction == 'down' else ''
-                change = f'<span class="{color}">{arrow}{abs(pct):.1f}%</span>' if arrow else ''
-                sub = f"上月 {prev} ｜ {change}" if prev else change
-            else:
-                sub = note
-            
-            st.markdown(f"""
-            <div class="kpi-card">
-                <div class="kpi-label">{label}</div>
-                <div class="kpi-value">{value}</div>
-                <div class="kpi-sub">{sub}</div>
-            </div>
-            """, unsafe_allow_html=True)
+def render_kpi_cards(items: List[Dict], cols: int = 3) -> str:
+    if not items: return ""
+    html = '<div class="kpi-row">'
+    for item in items:
+        label = item.get('label', '-')
+        value = item.get('value_display', str(item.get('value', '-')))
+        note = item.get('note', '')
+        direction = item.get('change_direction', '')
+        pct = item.get('change_pct')
+        prev = item.get('prev_display', '')
+        
+        if pct is not None:
+            arrow = '▲' if direction == 'up' else '▼' if direction == 'down' else ''
+            color = 'up' if direction == 'up' else 'down' if direction == 'down' else ''
+            change = f'<span class="{color}">{arrow}{abs(pct):.1f}%</span>' if arrow else ''
+            sub = f"上月 {prev} ｜ {change}" if prev else change
+        else:
+            sub = note
+        
+        html += f'''
+        <div class="kpi-card">
+            <div class="kpi-label">{label}</div>
+            <div class="kpi-value">{value}</div>
+            <div class="kpi-sub">{sub}</div>
+        </div>
+        '''
+    html += '</div>'
+    return html
 
-def render_tier_cards(rows: List[Dict]):
-    """渲染分层卡片（替代表格）"""
+def render_tier_cards(rows: List[Dict]) -> str:
+    html = ""
     for row in rows:
         tier = row.get('tier', row.get('层级', '-'))
         count = row.get('cur_count', row.get('人数', row.get('count', '-')))
         pct = row.get('cur_pct', row.get('占比', row.get('pct', '-')))
-        prev = row.get('prev_count', row.get('上月人数', ''))
         chg = row.get('chg_display', '')
         
-        st.markdown(f"""
+        html += f'''
         <div class="tier-card">
             <div class="tier-name">{tier}</div>
             <div class="tier-value">{count}</div>
             <div class="tier-pct">{pct}</div>
             <div class="tier-chg">{chg}</div>
         </div>
-        """, unsafe_allow_html=True)
+        '''
+    return html
 
-def render_author_card_h(row: Dict, rank: int):
-    """渲染横向紧凑作者卡片"""
+def render_author_card_h(row: Dict, rank: int) -> str:
     rank_icons = {1: "🥇", 2: "🥈", 3: "🥉"}
     rank_display = rank_icons.get(rank, f"#{rank}")
     
@@ -375,31 +395,25 @@ def render_author_card_h(row: Dict, rank: int):
     fans = row.get('fans_display', '-')
     platform = row.get('platform', '-')
     
-    # 主指标
     if 'chg_display' in row:
         main_stat = row.get('chg_display', '-')
-        main_label = '变化幅度'
     elif 'viral_count' in row:
         main_stat = f"{row.get('viral_count', 0)}条"
-        main_label = '爆款'
     elif 'cur_avg_display' in row:
         main_stat = row.get('cur_avg_display', '-')
-        main_label = '均播'
     else:
         main_stat = '-'
-        main_label = ''
     
-    st.markdown(f"""
+    return f'''
     <div class="author-card-h">
-        <div class="author-rank-h">{rank_display}</div>
+        <div class="tier-name">{rank_display}</div>
         <div class="author-name-h"><a href="{author_link}" target="_blank">{author_name}</a></div>
-        <div class="author-meta-h">ID:{author_id} | 粉丝:{fans} | {platform}</div>
-        <div class="author-stat-h">{main_stat}</div>
+        <div style="color: #6B7280; font-size: 11px; flex: 1;">ID:{author_id} | 粉丝:{fans} | {platform}</div>
+        <div style="font-weight: 600; color: #1B4FD8;">{main_stat}</div>
     </div>
-    """, unsafe_allow_html=True)
+    '''
 
-def render_video_card_h(row: Dict, rank: int):
-    """渲染横向紧凑作品卡片"""
+def render_video_card_h(row: Dict, rank: int) -> str:
     rank_icons = {1: "🥇", 2: "🥈", 3: "🥉"}
     rank_display = rank_icons.get(rank, f"#{rank}")
     
@@ -410,18 +424,17 @@ def render_video_card_h(row: Dict, rank: int):
     plays = row.get('plays_display', '-')
     likes = row.get('likes_display', '-')
     
-    st.markdown(f"""
+    return f'''
     <div class="video-card-h">
-        <div class="video-rank-h">{rank_display}</div>
+        <div class="tier-name">{rank_display}</div>
         <div class="video-title-h"><a href="{video_link}" target="_blank">{title}</a></div>
-        <div class="video-meta-h">{author_name} | {platform}</div>
-        <div class="video-stat-h">播放:{plays}</div>
-        <div class="video-stat-h">赞:{likes}</div>
+        <div style="color: #6B7280; font-size: 11px;">{author_name} | {platform}</div>
+        <div style="font-weight: 600; color: #1B4FD8;">播放:{plays}</div>
+        <div style="font-weight: 600; color: #1B4FD8;">赞:{likes}</div>
     </div>
-    """, unsafe_allow_html=True)
+    '''
 
-def render_activity_card(name: str, data: Dict, is_main: bool = False):
-    """渲染活动卡片"""
+def render_activity_card(name: str, data: Dict) -> str:
     posts = data.get('posts_display', '-')
     posts_change = data.get('posts_change', '')
     authors = data.get('authors_display', '-')
@@ -432,7 +445,7 @@ def render_activity_card(name: str, data: Dict, is_main: bool = False):
     change_html = f'<span style="color: #DC2626;">{posts_change}</span>' if posts_change else ''
     cpm_html = f'{cpm}（参考值 {cpm_ref}）' if cpm_ref else cpm
     
-    st.markdown(f"""
+    return f'''
     <div class="activity-card">
         <div class="activity-name">{name}</div>
         <div class="activity-stats">
@@ -442,19 +455,11 @@ def render_activity_card(name: str, data: Dict, is_main: bool = False):
             CPM：<b>{cpm_html}</b>
         </div>
     </div>
-    """, unsafe_allow_html=True)
+    '''
 
 # =============================================================================
 # 6. 图表函数（Plotly）
 # =============================================================================
-def create_bar_chart(df: pd.DataFrame, y_fixed: bool = True, title: str = ""):
-    fig = px.bar(df, y=df.columns[0])
-    if y_fixed:
-        fig.update_yaxes(fixedrange=True)
-    fig.update_xaxes(fixedrange=True)
-    fig.update_layout(title=title, margin=dict(l=20, r=20, t=30, b=20), height=300)
-    return fig
-
 def create_pie_chart(data: List[Dict], title: str = ""):
     labels = [d.get('label', d.get('type', '-')) for d in data]
     values = [d.get('value', d.get('count', 0)) for d in data]
@@ -501,7 +506,281 @@ def create_line_chart(dates: List[str], values: List, title: str = "",
     return fig
 
 # =============================================================================
-# 7. 示例数据
+# 7. HTML生成函数
+# =============================================================================
+def generate_html(data: Dict) -> str:
+    """生成完整静态HTML"""
+    html_parts = []
+    
+    # HTML头部
+    html_parts.append(f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>创作者运营月报</title>
+    {HTML_STYLES}
+</head>
+<body>
+""")
+    
+    # 页眉
+    title = safe_get(data, 'section_0_header.title', '月报标题')
+    html_parts.append(f'<h1 style="font-size: 22px; color: #1B4FD8; margin-bottom: 8px;">{title}</h1>\n')
+    
+    summary = safe_get(data, 'section_0_header.summary', '')
+    if summary:
+        html_parts.append(f'<div class="summary-box">{summary}</div>\n')
+    
+    html_parts.append('<hr>\n')
+    
+    # ===== 板块一：大盘概览 =====
+    s1 = data.get('section_1_dashboard', {})
+    if s1.get('enabled', True):
+        html_parts.append('<div class="section-title">一、大盘概览</div>\n')
+        html_parts.append(f'<div class="data-source">📊 数据来源：{s1.get("data_source", "-")}</div>\n')
+        
+        if s1.get('insight_box'):
+            html_parts.append(render_insight_box(s1['insight_box'].get('insight'), s1['insight_box'].get('risk')))
+        
+        if s1.get('kpi_cards', {}).get('items'):
+            html_parts.append(render_kpi_cards(s1['kpi_cards']['items'], cols=3))
+        
+        html_parts.append('<div class="chart-placeholder">📈 投稿趋势图（需在Streamlit中查看）</div>\n')
+        
+        by_platform = s1.get('by_platform', {})
+        if by_platform.get('table'):
+            html_parts.append('<div class="subsection-title">分平台数据</div>\n')
+            for p in by_platform['table']:
+                html_parts.append(f'''
+                <div class="tier-card">
+                    <div class="tier-name">{p['platform']}</div>
+                    <div class="tier-value">{p['posts']}</div>
+                    <div class="tier-pct">{p['posts_pct']}</div>
+                    <div class="tier-pct">播放:{p['plays']}</div>
+                    <div class="tier-pct">作者:{p['authors']}</div>
+                </div>
+                ''')
+    
+    # ===== 板块二：创作者维度 =====
+    s2 = data.get('section_2_creators', {})
+    if s2.get('enabled', True):
+        html_parts.append('<div class="section-title">二、创作者维度</div>\n')
+        html_parts.append(f'<div class="data-source">📊 数据来源：{s2.get("data_source", "-")}</div>\n')
+        
+        if s2.get('insight_box'):
+            html_parts.append(render_insight_box(s2['insight_box'].get('insight'), s2['insight_box'].get('risk')))
+        
+        if s2.get('kpi_cards', {}).get('items'):
+            html_parts.append(render_kpi_cards(s2['kpi_cards']['items'], cols=4))
+        
+        tier = s2.get('tier_distribution', {})
+        if tier.get('table'):
+            thresholds = tier.get('thresholds', {})
+            html_parts.append(f'<div class="subsection-title">粉段分层（{thresholds.get("tail_label", "<1万")} / {thresholds.get("mid_label", "1-30万")} / {thresholds.get("top_label", "≥30万")}）</div>\n')
+            html_parts.append(render_tier_cards(tier['table']))
+        
+        lost = s2.get('lost_author_analysis', {})
+        if lost:
+            html_parts.append('<div class="subsection-title">流失作者归因分析</div>\n')
+            html_parts.append(render_insight_box(lost.get('summary'), lost.get('risk')))
+            if lost.get('cards'):
+                html_parts.append(render_kpi_cards(lost['cards'], cols=3))
+        
+        alert = s2.get('activity_alert', {})
+        if alert.get('cards'):
+            html_parts.append('<div class="subsection-title">投稿活跃度预警</div>\n')
+            html_parts.append(render_kpi_cards(alert['cards'], cols=3))
+        
+        for key, title_text in [('activity_down_top10', '投稿活跃度 降低 Top 10'), ('activity_up_top10', '投稿活跃度 增加 Top 10')]:
+            table = s2.get(key, {})
+            if table.get('rows'):
+                html_parts.append(f'<div class="subsection-title">{title_text}</div>\n')
+                for i, row in enumerate(table['rows'][:10], 1):
+                    html_parts.append(render_author_card_h(row, row.get('rank', i)))
+    
+    # ===== 板块三：内容维度 =====
+    s3 = data.get('section_3_content', {})
+    if s3.get('enabled', True):
+        html_parts.append('<div class="section-title">三、内容维度</div>\n')
+        html_parts.append(f'<div class="data-source">📊 数据来源：{s3.get("data_source", "-")}</div>\n')
+        
+        if s3.get('insight_box'):
+            html_parts.append(render_insight_box(s3['insight_box'].get('insight'), s3['insight_box'].get('risk')))
+        
+        if s3.get('kpi_cards', {}).get('items'):
+            html_parts.append(render_kpi_cards(s3['kpi_cards']['items'], cols=3))
+        
+        top3 = s3.get('viral_authors_top3', {})
+        if top3.get('items'):
+            html_parts.append('<div class="subsection-title">爆款作者 Top 3</div>\n')
+            for item in top3['items']:
+                html_parts.append(f'''
+                <div class="kpi-card" style="display: inline-block; margin: 4px; min-width: 150px;">
+                    <div style="font-size: 14px; font-weight: 600; color: #1B4FD8;">{item.get('rank_icon', '')} Top {item.get('rank', 1)}</div>
+                    <div style="font-size: 14px; font-weight: 600; color: #1B4FD8;"><a href="{item.get('author_link', '#')}" target="_blank">{item.get('author_name', '-')}</a></div>
+                    <div class="kpi-value">{item.get('viral_count', 0)}</div>
+                    <div class="kpi-sub">条爆款 ｜ {item.get('author_id', '-')}</div>
+                </div>
+                ''')
+        
+        videos = s3.get('viral_videos_top10', {})
+        if videos.get('rows'):
+            html_parts.append(f'<div class="subsection-title">爆款稿件 Top 10（≥{s3.get("viral_threshold", 50000)//10000}万播放）</div>\n')
+            for i, row in enumerate(videos['rows'][:10], 1):
+                html_parts.append(render_video_card_h(row, row.get('rank', i)))
+        
+        content_type = s3.get('content_type_analysis', {})
+        if content_type.get('table'):
+            html_parts.append('<div class="subsection-title">爆款内容类型归因</div>\n')
+            if content_type.get('summary'):
+                html_parts.append(render_insight_box(content_type['summary']))
+            
+            for t in content_type['table']:
+                html_parts.append(f'''
+                <div class="tier-card">
+                    <div class="tier-name">{t['type']}</div>
+                    <div class="tier-value">{t['count_display']}</div>
+                    <div class="tier-pct">{t['percentage']}</div>
+                    <div class="tier-pct">条均:{t['avg_plays_display']}</div>
+                </div>
+                ''')
+        
+        # 条均播放增长Top10
+        avg_up = s3.get('avg_plays_up_top10', {})
+        if avg_up.get('rows'):
+            html_parts.append('<div class="subsection-title">条均播放增长 Top 10</div>\n')
+            for i, row in enumerate(avg_up['rows'][:10], 1):
+                html_parts.append(render_author_card_h(row, row.get('rank', i)))
+        
+        # 条均播放降低Top10（新增）
+        avg_down = s3.get('avg_plays_down_top10', {})
+        if avg_down.get('rows'):
+            html_parts.append('<div class="subsection-title">条均播放降低 Top 10</div>\n')
+            for i, row in enumerate(avg_down['rows'][:10], 1):
+                html_parts.append(render_author_card_h(row, row.get('rank', i)))
+    
+    # ===== 板块四：活动维度 =====
+    s4 = data.get('section_4_activities', {})
+    if s4.get('enabled', True):
+        html_parts.append('<div class="section-title">四、活动维度</div>\n')
+        html_parts.append(f'<div class="data-source">📊 数据来源：{s4.get("data_source", "-")}</div>\n')
+        
+        if s4.get('insight_box'):
+            html_parts.append(render_insight_box(s4['insight_box'].get('insight'), s4['insight_box'].get('risk')))
+        
+        main = s4.get('main_activity', {})
+        if main.get('cur_period'):
+            html_parts.append('<div class="subsection-title">主力活动对比</div>\n')
+            cur = main['cur_period']
+            html_parts.append(render_activity_card(f"当月：{cur.get('name', '-')}", cur))
+            prev = main.get('prev_period', {})
+            if prev:
+                html_parts.append(render_activity_card(f"上月：{prev.get('name', '-')}", prev))
+        
+        sub = s4.get('sub_activities', {})
+        if sub.get('rows'):
+            html_parts.append('<div class="subsection-title">其他活动 — 草根小喇叭（子活动）</div>\n')
+            for row in sub['rows']:
+                html_parts.append(render_activity_card(row.get('name', '-'), row))
+        
+        comm = s4.get('commissioned', {})
+        if comm:
+            html_parts.append('<div class="subsection-title">创作者约稿</div>\n')
+            cur = comm.get('cur', {})
+            if cur:
+                html_parts.append(render_activity_card(f"当月（{cur.get('count', 0)}个活动）", cur))
+            prev = comm.get('prev', {})
+            if prev:
+                html_parts.append(render_activity_card(f"上月（{prev.get('count', 0)}个活动）", prev))
+    
+    # ===== 板块五：直播维度 =====
+    s5 = data.get('section_5_livestream', {})
+    if s5.get('enabled', False):
+        html_parts.append('<div class="section-title">五、直播维度</div>\n')
+        html_parts.append(f'<div class="data-source">📊 数据来源：{s5.get("data_source", "-")}</div>\n')
+        
+        if s5.get('insight_box'):
+            html_parts.append(render_insight_box(s5['insight_box'].get('insight'), s5['insight_box'].get('risk')))
+        
+        if s5.get('kpi_cards', {}).get('items'):
+            html_parts.append(render_kpi_cards(s5['kpi_cards']['items'], cols=4))
+        
+        tier = s5.get('tier_distribution', {})
+        if tier.get('table'):
+            html_parts.append('<div class="subsection-title">主播分层</div>\n')
+            for t in tier['table']:
+                html_parts.append(f'''
+                <div class="tier-card">
+                    <div class="tier-name">{t['tier']}</div>
+                    <div class="tier-value">{t['count']}人</div>
+                    <div class="tier-pct">{t['pct']}</div>
+                </div>
+                ''')
+        
+        top = s5.get('top_streamers', {})
+        if top.get('rows'):
+            html_parts.append('<div class="subsection-title">直播作者 Top 10</div>\n')
+            for i, row in enumerate(top['rows'][:10], 1):
+                html_parts.append(render_author_card_h(row, row.get('rank', i)))
+    
+    # ===== 板块六：核心作者分析 =====
+    s6 = data.get('section_6_core_authors', {})
+    if s6.get('enabled', False):
+        html_parts.append('<div class="section-title">六、核心作者分析</div>\n')
+        html_parts.append(f'<div class="data-source">📊 数据来源：{s6.get("data_source", "-")}</div>\n')
+        
+        if s6.get('insight_box'):
+            html_parts.append(render_insight_box(s6['insight_box'].get('insight'), s6['insight_box'].get('risk')))
+        
+        if s6.get('kpi_cards', {}).get('items'):
+            html_parts.append(render_kpi_cards(s6['kpi_cards']['items'], cols=3))
+        
+        tier = s6.get('tier_distribution', {})
+        if tier.get('table'):
+            html_parts.append('<div class="subsection-title">作者分层</div>\n')
+            for t in tier['table']:
+                html_parts.append(f'''
+                <div class="tier-card">
+                    <div class="tier-name">{t['tier']}</div>
+                    <div class="tier-value">{t['count']}人</div>
+                    <div class="tier-pct">{t['pct']}</div>
+                </div>
+                ''')
+        
+        active = s6.get('active_pie', {})
+        contrib = s6.get('contribution_pie', {})
+        if active or contrib:
+            html_parts.append('<div style="display: flex; gap: 20px; margin: 12px 0;">\n')
+            if active:
+                html_parts.append('<div style="flex: 1;"><div class="chart-placeholder">📊 活跃人数占比（需在Streamlit中查看）</div></div>\n')
+            if contrib:
+                html_parts.append('<div style="flex: 1;"><div class="chart-placeholder">📊 播放量贡献占比（需在Streamlit中查看）</div></div>\n')
+            html_parts.append('</div>\n')
+    
+    # ===== 板块七：下月重点计划 =====
+    s7 = data.get('section_7_todos', {})
+    if s7.get('enabled', True):
+        html_parts.append('<div class="section-title">七、下月重点计划</div>\n')
+        categories = s7.get('categories', [])
+        if categories:
+            for cat in categories:
+                priority_color = {'高': '#DC2626', '中': '#F59E0B', '低': '#6B7280'}.get(cat.get('priority', '中'), '#374151')
+                html_parts.append(f'''
+                <div class="todo-card">
+                    <div class="todo-title" style="color: {priority_color};">{cat.get('name', '-')}（{cat.get('priority', '中')}优先级）</div>
+                    <div class="todo-item">{'<br>'.join(['• ' + item for item in cat.get('items', [])])}</div>
+                </div>
+                ''')
+    
+    # 页脚
+    html_parts.append(f'<div class="footer">创作者运营月报系统 v2.6 ｜ {datetime.now().strftime("%Y-%m-%d %H:%M")}</div>\n')
+    html_parts.append('</body>\n</html>')
+    
+    return '\n'.join(html_parts)
+
+# =============================================================================
+# 8. 示例数据
 # =============================================================================
 EXAMPLE_DATA = {
     "report_meta": {
@@ -568,7 +847,7 @@ EXAMPLE_DATA = {
             ]
         },
         "lost_author_analysis": {
-            "summary": "流失105人中，尾部（<1万粉）57人（54.3%），腰部48人（45.7%），头部0人（0%）。流失作者粉丝中位数 9,868，整体属于腰尾部作者自然流动。→ 判断：有一定风险。",
+            "summary": "流失105人中，尾部（<1万粉）57人（54.3%），腰部48人（45.7%），头部0人（0%）。流失作者粉丝中位数 9,868，整体属于腰尾部作者自然流动。",
             "risk": "腰部作者流失比例较高，建议针对腰部流失作者开展1v1触达。",
             "cards": [
                 {"label": "流失作者腰部占比", "value": 45.7, "value_display": "45.7%", "note": "48人"},
@@ -582,7 +861,7 @@ EXAMPLE_DATA = {
                 {"label": "重度下降（降幅>50%）", "value": 14, "value_display": "14"},
                 {"label": "显著增长（增幅>50%）", "value": 113, "value_display": "113"}
             ],
-            "footnote": "为避免低粉摇摆作者污染数据，投稿活跃度计算剔除2000粉以下作者"
+            "footnote": "投稿活跃度计算剔除2000粉以下作者"
         },
         "activity_down_top10": {
             "rows": [
@@ -661,9 +940,9 @@ EXAMPLE_DATA = {
         },
         "avg_plays_down_top10": {
             "rows": [
-                {"rank": 1, "author_name": "游戏达人小王", "author_link": "https://v.douyin.com/example", "author_id": "YS111222", "fans_display": "45,678", "platform": "抖音", "cur_avg_display": "3,256", "chg_display": "▼89.2%"},
-                {"rank": 2, "author_name": "极速玩家", "author_link": "https://v.douyin.com/example", "author_id": "YS333444", "fans_display": "23,456", "platform": "抖音", "cur_avg_display": "5,123", "chg_display": "▼76.5%"},
-                {"rank": 3, "author_name": "赛车手小李", "author_link": "https://v.douyin.com/example", "author_id": "YS555666", "fans_display": "12,345", "platform": "抖音", "cur_avg_display": "4,890", "chg_display": "▼68.3%"}
+                {"rank": 1, "author_name": "游戏达人小王", "author_link": "https://v.douyin.com/example", "author_id": "YS111222", "fans_display": "25,000", "platform": "抖音", "cur_avg_display": "2,100", "chg_display": "▼89%"},
+                {"rank": 2, "author_name": "极速玩家", "author_link": "https://v.douyin.com/example", "author_id": "YS333444", "fans_display": "8,500", "platform": "抖音", "cur_avg_display": "1,800", "chg_display": "▼85%"},
+                {"rank": 3, "author_name": "车神传说", "author_link": "https://v.douyin.com/example", "author_id": "YS555666", "fans_display": "15,200", "platform": "抖音", "cur_avg_display": "3,200", "chg_display": "▼78%"}
             ]
         }
     },
@@ -702,7 +981,7 @@ EXAMPLE_DATA = {
         "enabled": True,
         "data_source": "内容营销系统 - 直播数据",
         "insight_box": {
-            "insight": "2月直播场次稳定，场均ACU表现良好。互动率和粉丝转化表现优异。",
+            "insight": "2月直播场次稳定，场均ACU表现良好。",
             "risk": "头部主播集中度较高，需关注长尾主播培养。"
         },
         "kpi_cards": {
@@ -711,10 +990,10 @@ EXAMPLE_DATA = {
                 {"label": "累计开播人数", "value": 45, "value_display": "45"},
                 {"label": "累计看播人数", "value": 128000, "value_display": "12.8万"},
                 {"label": "场均ACU", "value": 856, "value_display": "856"},
-                {"label": "累计直播时长", "value": 312, "value_display": "312小时", "note": "场均2小时"},
-                {"label": "场均互动数", "value": 2340, "value_display": "2,340", "note": "弹幕+点赞"},
-                {"label": "新增关注数", "value": 1890, "value_display": "1,890", "note": "粉丝转化率1.5%"},
-                {"label": "互动率", "value": 12.3, "value_display": "12.3%", "note": "互动/看播"}
+                {"label": "总直播时长", "value": 312, "value_display": "312小时"},
+                {"label": "场均时长", "value": 2.0, "value_display": "2.0小时"},
+                {"label": "新增关注数", "value": 3250, "value_display": "3,250"},
+                {"label": "互动量", "value": 15600, "value_display": "1.56万"}
             ]
         },
         "tier_distribution": {
@@ -742,17 +1021,17 @@ EXAMPLE_DATA = {
         "enabled": True,
         "data_source": "用户提供核心作者名单 + 内容营销系统API",
         "insight_box": {
-            "insight": "核心作者贡献稳定，活跃率维持较高水平。爆款贡献占比突出，是优质内容主力军。",
+            "insight": "核心作者贡献稳定，活跃率维持较高水平。",
             "risk": "部分核心作者活跃度下降，需重点关注。"
         },
         "kpi_cards": {
             "items": [
                 {"label": "核心作者数", "value": 32, "value_display": "32"},
-                {"label": "贡献稿件数", "value": 1234, "value_display": "1,234", "note": "占比5.1%"},
-                {"label": "累计播放量", "value": 56700000, "value_display": "5670万", "note": "占比23.1%"},
-                {"label": "爆款贡献数", "value": 89, "value_display": "89条", "note": "占总爆款11.5%"},
-                {"label": "平均留存月数", "value": 4.2, "value_display": "4.2月", "note": "连续活跃"},
-                {"label": "粉丝总增长", "value": 156000, "value_display": "+15.6万", "note": "环比+8.3%"}
+                {"label": "贡献稿件数", "value": 1234, "value_display": "1,234"},
+                {"label": "累计播放量", "value": 56700000, "value_display": "5670万"},
+                {"label": "稿件贡献占比", "value": 5.1, "value_display": "5.1%", "note": "1234/24312"},
+                {"label": "爆款贡献占比", "value": 18.2, "value_display": "18.2%", "note": "141/777爆款"},
+                {"label": "核心作者留存率", "value": 87.5, "value_display": "87.5%", "note": "28/32连续活跃"}
             ]
         },
         "tier_distribution": {
@@ -788,7 +1067,7 @@ EXAMPLE_DATA = {
 }
 
 # =============================================================================
-# 8. 顶部操作区
+# 9. 顶部操作区
 # =============================================================================
 col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
 
@@ -808,11 +1087,15 @@ with col_btn2:
 
 with col_btn3:
     if st.session_state.report_data:
-        if st.button("📥 导出 HTML", use_container_width=True):
-            st.session_state.export_html = True
+        html_content = generate_html(st.session_state.report_data)
+        b64 = base64.b64encode(html_content.encode('utf-8')).decode()
+        product = safe_get(st.session_state.report_data, 'report_meta.product', 'report')
+        month = safe_get(st.session_state.report_data, 'report_meta.month', datetime.now().strftime('%Y-%m'))
+        filename = f"{product}_{month}_月报.html"
+        st.markdown(f'<a href="data:text/html;base64,{b64}" download="{filename}" style="display: block; width: 100%; text-align: center; background: #1B4FD8; color: white; padding: 8px 16px; border-radius: 6px; text-decoration: none; font-size: 14px;">📥 导出 HTML</a>', unsafe_allow_html=True)
 
 # =============================================================================
-# 9. 主界面
+# 10. 主界面（Streamlit渲染）
 # =============================================================================
 if not st.session_state.report_data:
     st.markdown("""
@@ -835,19 +1118,17 @@ if summary:
 
 st.markdown("---")
 
-# =============================================================================
-# 板块一：大盘概览
-# =============================================================================
+# ===== 板块一：大盘概览 =====
 s1 = data.get('section_1_dashboard', {})
 if s1.get('enabled', True):
     st.markdown('<div class="section-title">一、大盘概览</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="data-source">📊 数据来源：{s1.get("data_source", "-")}</div>', unsafe_allow_html=True)
     
     if s1.get('insight_box'):
-        render_insight_box(s1['insight_box'].get('insight'), s1['insight_box'].get('risk'))
+        st.markdown(render_insight_box(s1['insight_box'].get('insight'), s1['insight_box'].get('risk')), unsafe_allow_html=True)
     
     if s1.get('kpi_cards', {}).get('items'):
-        render_kpi_cards(s1['kpi_cards']['items'], cols=3)
+        st.markdown(render_kpi_cards(s1['kpi_cards']['items'], cols=3), unsafe_allow_html=True)
     
     # 日趋势图
     st.markdown('<div class="subsection-title">投稿趋势</div>', unsafe_allow_html=True)
@@ -864,7 +1145,6 @@ if s1.get('enabled', True):
     fig = create_line_chart(dates, posts, y_label="投稿量", events=events)
     st.plotly_chart(fig, use_container_width=True, key="chart_daily_trend")
     
-    # 分平台数据（卡片替代表格）
     by_platform = s1.get('by_platform', {})
     if by_platform.get('table'):
         st.markdown('<div class="subsection-title">分平台数据</div>', unsafe_allow_html=True)
@@ -879,7 +1159,6 @@ if s1.get('enabled', True):
             </div>
             """, unsafe_allow_html=True)
         
-        # 饼图并排
         col1, col2 = st.columns(2)
         with col1:
             pie_data = [{'label': p['platform'], 'value': p['posts']} for p in by_platform['table']]
@@ -889,74 +1168,57 @@ if s1.get('enabled', True):
             fig = create_pie_chart(pie_data, title="播放量占比")
             st.plotly_chart(fig, use_container_width=True, key="chart_platform_plays")
 
-# =============================================================================
-# 板块二：创作者维度
-# =============================================================================
+# ===== 板块二：创作者维度 =====
 s2 = data.get('section_2_creators', {})
 if s2.get('enabled', True):
     st.markdown('<div class="section-title">二、创作者维度</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="data-source">📊 数据来源：{s2.get("data_source", "-")}</div>', unsafe_allow_html=True)
     
     if s2.get('insight_box'):
-        render_insight_box(s2['insight_box'].get('insight'), s2['insight_box'].get('risk'))
+        st.markdown(render_insight_box(s2['insight_box'].get('insight'), s2['insight_box'].get('risk')), unsafe_allow_html=True)
     
     if s2.get('kpi_cards', {}).get('items'):
-        render_kpi_cards(s2['kpi_cards']['items'], cols=4)
+        st.markdown(render_kpi_cards(s2['kpi_cards']['items'], cols=4), unsafe_allow_html=True)
     
-    # 粉段分层（卡片）
     tier = s2.get('tier_distribution', {})
     if tier.get('table'):
         thresholds = tier.get('thresholds', {})
         st.markdown(f'<div class="subsection-title">粉段分层（{thresholds.get("tail_label", "<1万")} / {thresholds.get("mid_label", "1-30万")} / {thresholds.get("top_label", "≥30万")}）</div>', unsafe_allow_html=True)
-        for t in tier['table']:
-            st.markdown(f"""
-            <div class="tier-card">
-                <div class="tier-name">{t['tier']}</div>
-                <div class="tier-value">{t['cur_count']}</div>
-                <div class="tier-pct">{t['cur_pct']}</div>
-                <div class="tier-chg">{t['chg_display']}</div>
-            </div>
-            """, unsafe_allow_html=True)
+        st.markdown(render_tier_cards(tier['table']), unsafe_allow_html=True)
     
-    # 流失作者归因
     lost = s2.get('lost_author_analysis', {})
     if lost:
         st.markdown('<div class="subsection-title">流失作者归因分析</div>', unsafe_allow_html=True)
-        render_insight_box(lost.get('summary'), lost.get('risk'))
+        st.markdown(render_insight_box(lost.get('summary'), lost.get('risk')), unsafe_allow_html=True)
         if lost.get('cards'):
-            render_kpi_cards(lost['cards'], cols=3)
+            st.markdown(render_kpi_cards(lost['cards'], cols=3), unsafe_allow_html=True)
     
-    # 活跃度预警
     alert = s2.get('activity_alert', {})
     if alert.get('cards'):
         st.markdown('<div class="subsection-title">投稿活跃度预警</div>', unsafe_allow_html=True)
-        render_kpi_cards(alert['cards'], cols=3)
+        st.markdown(render_kpi_cards(alert['cards'], cols=3), unsafe_allow_html=True)
         if alert.get('footnote'):
             st.markdown(f"<small style='color: #6B7280;'>{alert['footnote']}</small>", unsafe_allow_html=True)
     
-    # Top10卡片
     for key, title_text in [('activity_down_top10', '投稿活跃度 降低 Top 10'), ('activity_up_top10', '投稿活跃度 增加 Top 10')]:
         table = s2.get(key, {})
         if table.get('rows'):
             st.markdown(f'<div class="subsection-title">{title_text}</div>', unsafe_allow_html=True)
             for i, row in enumerate(table['rows'][:10], 1):
-                render_author_card_h(row, row.get('rank', i))
+                st.markdown(render_author_card_h(row, row.get('rank', i)), unsafe_allow_html=True)
 
-# =============================================================================
-# 板块三：内容维度
-# =============================================================================
+# ===== 板块三：内容维度 =====
 s3 = data.get('section_3_content', {})
 if s3.get('enabled', True):
     st.markdown('<div class="section-title">三、内容维度</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="data-source">📊 数据来源：{s3.get("data_source", "-")}</div>', unsafe_allow_html=True)
     
     if s3.get('insight_box'):
-        render_insight_box(s3['insight_box'].get('insight'), s3['insight_box'].get('risk'))
+        st.markdown(render_insight_box(s3['insight_box'].get('insight'), s3['insight_box'].get('risk')), unsafe_allow_html=True)
     
     if s3.get('kpi_cards', {}).get('items'):
-        render_kpi_cards(s3['kpi_cards']['items'], cols=3)
+        st.markdown(render_kpi_cards(s3['kpi_cards']['items'], cols=3), unsafe_allow_html=True)
     
-    # 爆款作者Top3
     top3 = s3.get('viral_authors_top3', {})
     if top3.get('items'):
         st.markdown('<div class="subsection-title">爆款作者 Top 3</div>', unsafe_allow_html=True)
@@ -972,19 +1234,17 @@ if s3.get('enabled', True):
                 </div>
                 """, unsafe_allow_html=True)
     
-    # 爆款稿件Top10（横向卡片）
     videos = s3.get('viral_videos_top10', {})
     if videos.get('rows'):
         st.markdown(f'<div class="subsection-title">爆款稿件 Top 10（≥{s3.get("viral_threshold", 50000)//10000}万播放）</div>', unsafe_allow_html=True)
         for i, row in enumerate(videos['rows'][:10], 1):
-            render_video_card_h(row, row.get('rank', i))
+            st.markdown(render_video_card_h(row, row.get('rank', i)), unsafe_allow_html=True)
     
-    # 内容类型归因（卡片替代表格 + 饼图）
     content_type = s3.get('content_type_analysis', {})
     if content_type.get('table'):
         st.markdown('<div class="subsection-title">爆款内容类型归因</div>', unsafe_allow_html=True)
         if content_type.get('summary'):
-            render_insight_box(content_type['summary'])
+            st.markdown(render_insight_box(content_type['summary']), unsafe_allow_html=True)
         
         for t in content_type['table']:
             st.markdown(f"""
@@ -1005,27 +1265,24 @@ if s3.get('enabled', True):
     if avg_up.get('rows'):
         st.markdown('<div class="subsection-title">条均播放增长 Top 10</div>', unsafe_allow_html=True)
         for i, row in enumerate(avg_up['rows'][:10], 1):
-            render_author_card_h(row, row.get('rank', i))
+            st.markdown(render_author_card_h(row, row.get('rank', i)), unsafe_allow_html=True)
     
     # 条均播放降低Top10（新增）
     avg_down = s3.get('avg_plays_down_top10', {})
     if avg_down.get('rows'):
         st.markdown('<div class="subsection-title">条均播放降低 Top 10</div>', unsafe_allow_html=True)
         for i, row in enumerate(avg_down['rows'][:10], 1):
-            render_author_card_h(row, row.get('rank', i))
+            st.markdown(render_author_card_h(row, row.get('rank', i)), unsafe_allow_html=True)
 
-# =============================================================================
-# 板块四：活动维度
-# =============================================================================
+# ===== 板块四：活动维度 =====
 s4 = data.get('section_4_activities', {})
 if s4.get('enabled', True):
     st.markdown('<div class="section-title">四、活动维度</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="data-source">📊 数据来源：{s4.get("data_source", "-")}</div>', unsafe_allow_html=True)
     
     if s4.get('insight_box'):
-        render_insight_box(s4['insight_box'].get('insight'), s4['insight_box'].get('risk'))
+        st.markdown(render_insight_box(s4['insight_box'].get('insight'), s4['insight_box'].get('risk')), unsafe_allow_html=True)
     
-    # 主力活动对比
     main = s4.get('main_activity', {})
     if main.get('cur_period'):
         st.markdown('<div class="subsection-title">主力活动对比</div>', unsafe_allow_html=True)
@@ -1033,21 +1290,19 @@ if s4.get('enabled', True):
         
         cur = main['cur_period']
         with col1:
-            render_activity_card(f"当月：{cur.get('name', '-')}", cur, is_main=True)
+            st.markdown(render_activity_card(f"当月：{cur.get('name', '-')}", cur), unsafe_allow_html=True)
         
         prev = main.get('prev_period', {})
         if prev:
             with col2:
-                render_activity_card(f"上月：{prev.get('name', '-')}", prev)
+                st.markdown(render_activity_card(f"上月：{prev.get('name', '-')}", prev), unsafe_allow_html=True)
     
-    # 子活动
     sub = s4.get('sub_activities', {})
     if sub.get('rows'):
         st.markdown('<div class="subsection-title">其他活动 — 草根小喇叭（子活动）</div>', unsafe_allow_html=True)
         for row in sub['rows']:
-            render_activity_card(row.get('name', '-'), row)
+            st.markdown(render_activity_card(row.get('name', '-'), row), unsafe_allow_html=True)
     
-    # 创作者约稿
     comm = s4.get('commissioned', {})
     if comm:
         st.markdown('<div class="subsection-title">创作者约稿</div>', unsafe_allow_html=True)
@@ -1055,27 +1310,24 @@ if s4.get('enabled', True):
         cur = comm.get('cur', {})
         if cur:
             with col1:
-                render_activity_card(f"当月（{cur.get('count', 0)}个活动）", cur)
+                st.markdown(render_activity_card(f"当月（{cur.get('count', 0)}个活动）", cur), unsafe_allow_html=True)
         prev = comm.get('prev', {})
         if prev:
             with col2:
-                render_activity_card(f"上月（{prev.get('count', 0)}个活动）", prev)
+                st.markdown(render_activity_card(f"上月（{prev.get('count', 0)}个活动）", prev), unsafe_allow_html=True)
 
-# =============================================================================
-# 板块五：直播维度
-# =============================================================================
+# ===== 板块五：直播维度 =====
 s5 = data.get('section_5_livestream', {})
 if s5.get('enabled', False):
     st.markdown('<div class="section-title">五、直播维度</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="data-source">📊 数据来源：{s5.get("data_source", "-")}</div>', unsafe_allow_html=True)
     
     if s5.get('insight_box'):
-        render_insight_box(s5['insight_box'].get('insight'), s5['insight_box'].get('risk'))
+        st.markdown(render_insight_box(s5['insight_box'].get('insight'), s5['insight_box'].get('risk')), unsafe_allow_html=True)
     
     if s5.get('kpi_cards', {}).get('items'):
-        render_kpi_cards(s5['kpi_cards']['items'], cols=4)
+        st.markdown(render_kpi_cards(s5['kpi_cards']['items'], cols=4), unsafe_allow_html=True)
     
-    # 主播分层（卡片）
     tier = s5.get('tier_distribution', {})
     if tier.get('table'):
         st.markdown('<div class="subsection-title">主播分层</div>', unsafe_allow_html=True)
@@ -1092,30 +1344,27 @@ if s5.get('enabled', False):
             fig = create_pie_chart(tier['pie_data'], title="主播分层分布")
             st.plotly_chart(fig, use_container_width=True, key="chart_streamer_tier")
     
-    # Top主播
     top = s5.get('top_streamers', {})
     if top.get('rows'):
         st.markdown('<div class="subsection-title">直播作者 Top 10</div>', unsafe_allow_html=True)
         for i, row in enumerate(top['rows'][:10], 1):
-            render_author_card_h(row, row.get('rank', i))
+            st.markdown(render_author_card_h(row, row.get('rank', i)), unsafe_allow_html=True)
 
 elif s5.get('enabled') is False:
     st.markdown('<div class="section-title">五、直播维度</div>', unsafe_allow_html=True)
     st.info("该板块未启用")
 
-# =============================================================================
-# 板块六：核心作者分析
-# =============================================================================
+# ===== 板块六：核心作者分析 =====
 s6 = data.get('section_6_core_authors', {})
 if s6.get('enabled', False):
     st.markdown('<div class="section-title">六、核心作者分析</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="data-source">📊 数据来源：{s6.get("data_source", "-")}</div>', unsafe_allow_html=True)
     
     if s6.get('insight_box'):
-        render_insight_box(s6['insight_box'].get('insight'), s6['insight_box'].get('risk'))
+        st.markdown(render_insight_box(s6['insight_box'].get('insight'), s6['insight_box'].get('risk')), unsafe_allow_html=True)
     
     if s6.get('kpi_cards', {}).get('items'):
-        render_kpi_cards(s6['kpi_cards']['items'], cols=3)
+        st.markdown(render_kpi_cards(s6['kpi_cards']['items'], cols=3), unsafe_allow_html=True)
     
     tier = s6.get('tier_distribution', {})
     if tier.get('table'):
@@ -1129,7 +1378,6 @@ if s6.get('enabled', False):
             </div>
             """, unsafe_allow_html=True)
     
-    # 两个饼图并排
     active = s6.get('active_pie', {})
     contrib = s6.get('contribution_pie', {})
     if active or contrib:
@@ -1155,9 +1403,7 @@ elif s6.get('enabled') is False:
     st.markdown('<div class="section-title">六、核心作者分析</div>', unsafe_allow_html=True)
     st.info("该板块未启用")
 
-# =============================================================================
-# 板块七：下月重点计划
-# =============================================================================
+# ===== 板块七：下月重点计划 =====
 s7 = data.get('section_7_todos', {})
 if s7.get('enabled', True):
     st.markdown('<div class="section-title">七、下月重点计划</div>', unsafe_allow_html=True)
@@ -1172,56 +1418,6 @@ if s7.get('enabled', True):
             </div>
             """, unsafe_allow_html=True)
 
-# =============================================================================
-# 页脚
-# =============================================================================
+# ===== 页脚 =====
 st.markdown("---")
 st.markdown(f'<div style="text-align: center; color: #9CA3AF; font-size: 11px;">创作者运营月报系统 v2.6 ｜ {datetime.now().strftime("%Y-%m-%d %H:%M")}</div>', unsafe_allow_html=True)
-
-# =============================================================================
-# 导出HTML处理
-# =============================================================================
-if st.session_state.get('export_html'):
-    st.session_state.export_html = False
-    
-    # 生成HTML内容
-    html_content = f"""<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{safe_get(data, 'section_0_header.title', '月报')}</title>
-    <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background: #fff; }}
-        h1 {{ font-size: 24px; color: #1B4FD8; }}
-        .summary-box {{ background: rgba(27,79,216,0.1); border-radius: 8px; padding: 16px 20px; margin: 12px 0; border-left: 4px solid #1B4FD8; font-size: 13px; line-height: 1.8; }}
-        .section-title {{ font-size: 18px; font-weight: 700; color: #1B4FD8; margin: 20px 0 12px 0; padding-bottom: 8px; border-bottom: 2px solid #E8EFFF; }}
-        .insight-box {{ background: #F0F4FF; border-radius: 8px; padding: 14px 18px; margin: 12px 0; border-left: 4px solid #1B4FD8; font-size: 13px; line-height: 1.8; }}
-        .kpi-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0; }}
-        .kpi-card {{ background: #F5F8FF; border-radius: 10px; padding: 12px; border: 1px solid #E0E8FF; text-align: center; }}
-        .kpi-label {{ font-size: 11px; color: #6B7280; }}
-        .kpi-value {{ font-size: 20px; font-weight: 700; color: #1B4FD8; margin: 4px 0; }}
-        .kpi-sub {{ font-size: 10px; color: #6B7280; }}
-        .tier-card {{ background: #F9FAFB; border-radius: 6px; padding: 10px 14px; border: 1px solid #E5E7EB; margin: 4px 0; display: flex; align-items: center; gap: 16px; font-size: 12px; }}
-        .author-card-h {{ background: #F9FAFB; border-radius: 6px; padding: 8px 12px; border: 1px solid #E5E7EB; margin: 4px 0; display: flex; align-items: center; gap: 12px; font-size: 12px; }}
-        .video-card-h {{ background: #F9FAFB; border-radius: 6px; padding: 8px 12px; border: 1px solid #E5E7EB; margin: 4px 0; display: flex; align-items: center; gap: 12px; font-size: 12px; }}
-        .activity-card {{ background: #F5F8FF; border-radius: 8px; padding: 14px 18px; border: 1px solid #E0E8FF; margin: 8px 0; }}
-        .todo-card {{ background: #F5F8FF; border-radius: 8px; padding: 14px 18px; border: 1px solid #E0E8FF; margin: 8px 0; }}
-        a {{ color: #1B4FD8; text-decoration: none; }}
-        .up {{ color: #16A34A; font-weight: 600; }}
-        .down {{ color: #DC2626; font-weight: 600; }}
-    </style>
-</head>
-<body>
-    <h1>{safe_get(data, 'section_0_header.title', '月报标题')}</h1>
-    <div class="summary-box">{safe_get(data, 'section_0_header.summary', '')}</div>
-    <hr>
-    <p style="text-align:center;color:#9CA3AF;font-size:11px;">导出于 {datetime.now().strftime("%Y-%m-%d %H:%M")} ｜ 创作者运营月报系统 v2.6</p>
-</body>
-</html>"""
-    
-    # 生成下载链接
-    b64_html = base64.b64encode(html_content.encode('utf-8')).decode()
-    href = f'<a href="data:text/html;base64,{b64_html}" download="月报_{safe_get(data, "report_meta.month", "report")}.html">📥 点击下载 HTML 文件</a>'
-    st.markdown(href, unsafe_allow_html=True)
-    st.info("HTML文件已生成，点击上方链接下载")
