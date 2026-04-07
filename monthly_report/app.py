@@ -1,23 +1,68 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-小喇叭创作者运营月报系统 v2.3.0
+小喇叭创作者运营月报系统 v2.4.0
+优化版：图表优化、表格改卡片、左侧导航、时间节点可视化
 """
 
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
+import plotly.express as px
 import json
 import calendar
+import os
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 # =============================================================================
 # 1. 页面配置
 # =============================================================================
-st.set_page_config(page_title="创作者运营月报系统", page_icon="📊", layout="wide")
+st.set_page_config(
+    page_title="创作者运营月报系统", 
+    page_icon="📊", 
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 # =============================================================================
-# 2. 样式
+# 2. 常量与配置
+# =============================================================================
+WORKSPACE_DIR = os.path.dirname(os.path.abspath(__file__))
+USERS_FILE = os.path.join(WORKSPACE_DIR, "users.json")
+REPORTS_DIR = os.path.join(WORKSPACE_DIR, "reports")
+
+# 确保目录存在
+os.makedirs(REPORTS_DIR, exist_ok=True)
+
+# 默认用户（首次运行时创建）
+DEFAULT_USERS = {
+    "admin": {"password": "admin123", "name": "管理员"},
+    "editor": {"password": "editor123", "name": "编辑"}
+}
+
+# =============================================================================
+# 3. 用户管理函数
+# =============================================================================
+def load_users() -> Dict:
+    """加载用户列表"""
+    if not os.path.exists(USERS_FILE):
+        with open(USERS_FILE, "w", encoding="utf-8") as f:
+            json.dump(DEFAULT_USERS, f, ensure_ascii=False, indent=2)
+        return DEFAULT_USERS
+    try:
+        with open(USERS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return DEFAULT_USERS
+
+def save_users(users: Dict):
+    """保存用户列表"""
+    with open(USERS_FILE, "w", encoding="utf-8") as f:
+        json.dump(users, f, ensure_ascii=False, indent=2)
+
+# =============================================================================
+# 4. 样式
 # =============================================================================
 st.markdown("""
 <style>
@@ -106,9 +151,6 @@ st.markdown("""
     a { color: #1B4FD8; text-decoration: none; }
     a:hover { text-decoration: underline; }
     
-    /* 表格样式 */
-    .stDataFrame { font-size: 12px; }
-    
     /* TODO卡片 */
     .todo-card {
         background: #F5F8FF;
@@ -129,11 +171,125 @@ st.markdown("""
         line-height: 1.8;
         padding-left: 12px;
     }
+    
+    /* 作者卡片 */
+    .author-card {
+        background: #F9FAFB;
+        border-radius: 8px;
+        padding: 12px 16px;
+        border: 1px solid #E5E7EB;
+        margin: 6px 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .author-rank {
+        font-size: 16px;
+        font-weight: 700;
+        color: #1B4FD8;
+        min-width: 36px;
+    }
+    .author-info {
+        flex: 1;
+    }
+    .author-name {
+        font-size: 14px;
+        font-weight: 600;
+        color: #1B4FD8;
+    }
+    .author-meta {
+        font-size: 11px;
+        color: #6B7280;
+        margin-top: 4px;
+    }
+    .author-stats {
+        text-align: right;
+    }
+    .author-main-stat {
+        font-size: 16px;
+        font-weight: 700;
+        color: #1B4FD8;
+    }
+    .author-sub-stat {
+        font-size: 11px;
+        color: #6B7280;
+    }
+    
+    /* 作品卡片 */
+    .video-card {
+        background: #F9FAFB;
+        border-radius: 8px;
+        padding: 12px 16px;
+        border: 1px solid #E5E7EB;
+        margin: 6px 0;
+    }
+    .video-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: #1B4FD8;
+        margin-bottom: 6px;
+    }
+    .video-meta {
+        font-size: 11px;
+        color: #6B7280;
+    }
+    .video-stats {
+        display: flex;
+        gap: 16px;
+        margin-top: 8px;
+    }
+    .video-stat-item {
+        font-size: 12px;
+    }
+    .video-stat-label {
+        color: #6B7280;
+    }
+    .video-stat-value {
+        font-weight: 600;
+        color: #1B4FD8;
+    }
+    
+    /* 活动卡片 */
+    .activity-card {
+        background: #F5F8FF;
+        border-radius: 10px;
+        padding: 16px 20px;
+        border: 1px solid #E0E8FF;
+        margin: 8px 0;
+    }
+    .activity-name {
+        font-size: 14px;
+        font-weight: 600;
+        color: #1B4FD8;
+        margin-bottom: 10px;
+    }
+    .activity-stats {
+        font-size: 12px;
+        color: #374151;
+        line-height: 1.8;
+    }
+    
+    /* 左侧导航按钮 */
+    .nav-button {
+        width: 100%;
+        text-align: left;
+        padding: 8px 12px;
+        margin: 2px 0;
+        border-radius: 6px;
+        font-size: 13px;
+        cursor: pointer;
+        border: none;
+        background: transparent;
+        color: #374151;
+    }
+    .nav-button:hover {
+        background: #F3F4F6;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # =============================================================================
-# 3. Session State
+# 5. Session State
 # =============================================================================
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
@@ -141,36 +297,76 @@ if 'username' not in st.session_state:
     st.session_state.username = ""
 if 'report_data' not in st.session_state:
     st.session_state.report_data = None
+if 'show_register' not in st.session_state:
+    st.session_state.show_register = False
 
 # =============================================================================
-# 4. 用户认证
+# 6. 登录页面
 # =============================================================================
-USERS = {"admin": "admin123", "editor": "editor123"}
-
 def login_page():
+    users = load_users()
+    
     st.markdown("""
-    <div style="max-width: 400px; margin: 100px auto; padding: 40px; border: 1px solid #eee; border-radius: 8px; text-align: center;">
+    <div style="max-width: 400px; margin: 60px auto; padding: 40px; border: 1px solid #eee; border-radius: 8px; text-align: center;">
         <h2>创作者月报系统 📊</h2>
         <p style="color: #6B7280;">请登录以继续</p>
     </div>
     """, unsafe_allow_html=True)
-    with st.form("login_form"):
-        username = st.text_input("用户名", placeholder="admin")
-        password = st.text_input("密码", type="password", placeholder="admin123")
-        if st.form_submit_button("登录", use_container_width=True):
-            if username in USERS and USERS[username] == password:
-                st.session_state.logged_in = True
-                st.session_state.username = username
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if not st.session_state.show_register:
+            # 登录表单
+            with st.form("login_form"):
+                username = st.text_input("用户名", placeholder="admin")
+                password = st.text_input("密码", type="password", placeholder="admin123")
+                submit = st.form_submit_button("登录", use_container_width=True)
+                
+                if submit:
+                    if username in users and users[username].get("password") == password:
+                        st.session_state.logged_in = True
+                        st.session_state.username = username
+                        st.rerun()
+                    else:
+                        st.error("用户名或密码错误")
+            
+            if st.button("注册新账户", use_container_width=True):
+                st.session_state.show_register = True
                 st.rerun()
-            else:
-                st.error("用户名或密码错误")
+        else:
+            # 注册表单
+            with st.form("register_form"):
+                new_user = st.text_input("用户名", placeholder="请输入用户名")
+                new_pass = st.text_input("密码", type="password", placeholder="请输入密码")
+                new_name = st.text_input("昵称", placeholder="请输入昵称（可选）")
+                submit = st.form_submit_button("注册", use_container_width=True)
+                
+                if submit:
+                    if not new_user or not new_pass:
+                        st.error("用户名和密码不能为空")
+                    elif new_user in users:
+                        st.error("用户名已存在")
+                    else:
+                        users[new_user] = {
+                            "password": new_pass,
+                            "name": new_name or new_user
+                        }
+                        save_users(users)
+                        st.success("注册成功！请登录")
+                        st.session_state.show_register = False
+                        st.rerun()
+            
+            if st.button("返回登录", use_container_width=True):
+                st.session_state.show_register = False
+                st.rerun()
+    
     st.stop()
 
 if not st.session_state.logged_in:
     login_page()
 
 # =============================================================================
-# 5. 辅助函数
+# 7. 辅助函数
 # =============================================================================
 def safe_get(data: Dict, keys: str, default=None):
     try:
@@ -216,37 +412,207 @@ def render_kpi_cards(items: List[Dict], cols: int = 3):
             </div>
             """, unsafe_allow_html=True)
 
-def render_table_with_links(df: pd.DataFrame, link_col: str = None, name_col: str = None):
-    """渲染表格，指定列显示为链接"""
-    if df.empty: return
-    display_df = df.copy()
+def render_author_card(row: Dict, rank: int):
+    """渲染作者卡片"""
+    rank_icons = {1: "🥇", 2: "🥈", 3: "🥉"}
+    rank_display = rank_icons.get(rank, f"#{rank}")
     
-    # 如果有链接列，将名称列转为链接格式
-    if link_col and name_col and link_col in display_df.columns and name_col in display_df.columns:
-        # Streamlit dataframe 不支持HTML链接，用markdown格式
-        pass
+    author_link = row.get('author_link', '#')
+    author_name = row.get('author_name', '-')
+    author_id = row.get('author_id', '-')
+    fans = row.get('fans_display', '-')
+    platform = row.get('platform', '-')
     
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    # 主指标（投稿活跃度用变化幅度，爆款用爆款数，条均播放用增幅）
+    if 'chg_display' in row:
+        main_stat = row.get('chg_display', '-')
+        main_label = '变化幅度'
+    elif 'viral_count' in row:
+        main_stat = f"{row.get('viral_count', 0)}条"
+        main_label = '爆款数'
+    elif 'cur_avg_display' in row:
+        main_stat = row.get('cur_avg_display', '-')
+        main_label = '本月均播'
+    else:
+        main_stat = '-'
+        main_label = ''
+    
+    st.markdown(f"""
+    <div class="author-card">
+        <div class="author-rank">{rank_display}</div>
+        <div class="author-info">
+            <div class="author-name"><a href="{author_link}" target="_blank">{author_name}</a></div>
+            <div class="author-meta">ID: {author_id} ｜ 粉丝: {fans} ｜ {platform}</div>
+        </div>
+        <div class="author-stats">
+            <div class="author-main-stat">{main_stat}</div>
+            <div class="author-sub-stat">{main_label}</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# 表头映射
-COLUMN_NAMES = {
-    'rank': '排名', 'author_name': '作者昵称', 'author_id': '创作匠ID',
-    'fans_display': '粉丝数', 'platform': '平台', 'prev_tasks': '上月投稿',
-    'cur_tasks': '本月投稿', 'chg_abs': '变化条数', 'chg_display': '变化幅度',
-    'prev_avg_display': '上月均播', 'cur_avg_display': '本月均播',
-    'title': '作品标题', 'video_link': '作品链接', 'author_link': '作者主页',
-    'plays_display': '播放量', 'likes_display': '点赞量',
-    'type': '内容类型', 'count_display': '爆款条数', 'percentage': '占比',
-    'avg_plays_display': '条均播放', 'tier': '层级', 'cur_count': '人数',
-    'cur_pct': '占比', 'session_count': '直播场次', 'view_count_display': '总观看',
-    'avg_acu_display': '场均ACU'
-}
+def render_video_card(row: Dict, rank: int):
+    """渲染作品卡片"""
+    rank_icons = {1: "🥇", 2: "🥈", 3: "🥉"}
+    rank_display = rank_icons.get(rank, f"#{rank}")
+    
+    video_link = row.get('video_link', '#')
+    title = row.get('title', '-')
+    author_name = row.get('author_name', '-')
+    author_link = row.get('author_link', '#')
+    platform = row.get('platform', '-')
+    plays = row.get('plays_display', '-')
+    likes = row.get('likes_display', '-')
+    
+    st.markdown(f"""
+    <div class="video-card">
+        <div class="video-title">{rank_display} <a href="{video_link}" target="_blank">{title}</a></div>
+        <div class="video-meta">
+            <a href="{author_link}" target="_blank">{author_name}</a> ｜ {platform}
+        </div>
+        <div class="video-stats">
+            <div class="video-stat-item">
+                <span class="video-stat-label">播放：</span>
+                <span class="video-stat-value">{plays}</span>
+            </div>
+            <div class="video-stat-item">
+                <span class="video-stat-label">点赞：</span>
+                <span class="video-stat-value">{likes}</span>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-def rename_columns(df: pd.DataFrame) -> pd.DataFrame:
-    return df.rename(columns={k: v for k, v in COLUMN_NAMES.items() if k in df.columns})
+def render_activity_card(name: str, data: Dict, is_main: bool = False):
+    """渲染活动卡片"""
+    posts = data.get('posts_display', '-')
+    posts_change = data.get('posts_change', '')
+    authors = data.get('authors_display', '-')
+    plays = data.get('plays_display', '-')
+    cpm = data.get('cpm_display', '-')
+    cpm_ref = data.get('cpm_ref', '')
+    
+    change_html = f'<span style="color: #DC2626;">{posts_change}</span>' if posts_change else ''
+    cpm_html = f'{cpm}（参考值 {cpm_ref}）' if cpm_ref else cpm
+    
+    st.markdown(f"""
+    <div class="activity-card">
+        <div class="activity-name">{name}</div>
+        <div class="activity-stats">
+            投稿量：<b>{posts}</b> {change_html}<br>
+            参与作者：<b>{authors}</b><br>
+            含三方播放：<b>{plays}</b><br>
+            预估CPM：<b>{cpm_html}</b>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 # =============================================================================
-# 6. 完整示例数据
+# 8. 图表函数（Plotly）
+# =============================================================================
+def create_bar_chart(df: pd.DataFrame, y_fixed: bool = True, title: str = ""):
+    """创建柱状图（y轴锁定）"""
+    fig = px.bar(df, y=df.columns[0])
+    if y_fixed:
+        fig.update_yaxes(fixedrange=True)
+    fig.update_xaxes(fixedrange=True)
+    fig.update_layout(
+        title=title,
+        margin=dict(l=20, r=20, t=30, b=20),
+        height=300
+    )
+    return fig
+
+def create_pie_chart(data: List[Dict], title: str = ""):
+    """创建饼图"""
+    labels = [d.get('label', d.get('type', '-')) for d in data]
+    values = [d.get('value', d.get('count', 0)) for d in data]
+    
+    fig = go.Figure(data=[go.Pie(
+        labels=labels, 
+        values=values,
+        hole=0.3,
+        textinfo='label+percent',
+        textposition='outside'
+    )])
+    fig.update_layout(
+        title=title,
+        margin=dict(l=20, r=20, t=30, b=20),
+        height=350,
+        showlegend=False
+    )
+    return fig
+
+def create_line_chart(dates: List[str], values: List, title: str = "", 
+                      events: List[Dict] = None, y_label: str = ""):
+    """创建折线图（带时间节点标记）"""
+    fig = go.Figure()
+    
+    fig.add_trace(go.Scatter(
+        x=dates,
+        y=values,
+        mode='lines+markers',
+        name=y_label,
+        line=dict(color='#1B4FD8', width=2),
+        marker=dict(size=6)
+    ))
+    
+    # 添加时间节点垂直线
+    if events:
+        for event in events:
+            event_date = event.get('date', '')
+            event_name = event.get('name', '')
+            if event_date in dates:
+                fig.add_vline(
+                    x=event_date,
+                    line=dict(color='red', width=2, dash='dash'),
+                    annotation=dict(text=event_name, textangle=0, font=dict(size=10))
+                )
+    
+    fig.update_yaxes(fixedrange=True)
+    fig.update_xaxes(fixedrange=True)
+    fig.update_layout(
+        title=title,
+        margin=dict(l=20, r=20, t=40, b=20),
+        height=350,
+        xaxis_title="日期",
+        yaxis_title=y_label,
+        hovermode='x unified'
+    )
+    return fig
+
+def create_dual_bar_chart(df: pd.DataFrame, title: str = ""):
+    """创建双轴柱状图"""
+    fig = go.Figure()
+    
+    cols = df.columns.tolist()
+    if len(cols) >= 2:
+        fig.add_trace(go.Bar(
+            x=df.index,
+            y=df[cols[0]],
+            name=cols[0],
+            marker_color='#1B4FD8'
+        ))
+        if len(cols) >= 2:
+            fig.add_trace(go.Bar(
+                x=df.index,
+                y=df[cols[1]],
+                name=cols[1]],
+                marker_color='#93C5FD'
+            ))
+    
+    fig.update_yaxes(fixedrange=True)
+    fig.update_xaxes(fixedrange=True)
+    fig.update_layout(
+        title=title,
+        barmode='group',
+        margin=dict(l=20, r=20, t=30, b=20),
+        height=350
+    )
+    return fig
+
+# =============================================================================
+# 9. 示例数据
 # =============================================================================
 EXAMPLE_DATA = {
     "report_meta": {
@@ -335,12 +701,7 @@ EXAMPLE_DATA = {
                 {"rank": 2, "author_name": "i游戏风景kun", "author_link": "https://v.douyin.com/example", "author_id": "YS438516", "fans_display": "74,215", "platform": "抖音", "prev_tasks": 36, "cur_tasks": 1, "chg_abs": 35, "chg_display": "▼97.2%"},
                 {"rank": 3, "author_name": "Their**佬", "author_link": "https://v.douyin.com/example", "author_id": "YS038640", "fans_display": "39,287", "platform": "抖音", "prev_tasks": 30, "cur_tasks": 1, "chg_abs": 29, "chg_display": "▼96.7%"},
                 {"rank": 4, "author_name": "飞星玩家", "author_link": "https://v.douyin.com/example", "author_id": "YS285194", "fans_display": "25,361", "platform": "抖音", "prev_tasks": 50, "cur_tasks": 27, "chg_abs": 23, "chg_display": "▼46.0%"},
-                {"rank": 5, "author_name": "锦荣", "author_link": "https://v.douyin.com/example", "author_id": "YS694327", "fans_display": "8,441", "platform": "抖音", "prev_tasks": 30, "cur_tasks": 9, "chg_abs": 21, "chg_display": "▼70.0%"},
-                {"rank": 6, "author_name": "妞宝玥泓", "author_link": "https://v.douyin.com/example", "author_id": "YS741847", "fans_display": "3,224", "platform": "抖音", "prev_tasks": 19, "cur_tasks": 1, "chg_abs": 18, "chg_display": "▼94.7%"},
-                {"rank": 7, "author_name": "不晓得**", "author_link": "https://v.douyin.com/example", "author_id": "YS043826", "fans_display": "47,299", "platform": "抖音", "prev_tasks": 80, "cur_tasks": 62, "chg_abs": 18, "chg_display": "▼22.5%"},
-                {"rank": 8, "author_name": "eggta", "author_link": "https://v.douyin.com/example", "author_id": "YS883747", "fans_display": "52,694", "platform": "抖音", "prev_tasks": 14, "cur_tasks": 1, "chg_abs": 13, "chg_display": "▼92.9%"},
-                {"rank": 9, "author_name": "薏苡", "author_link": "https://v.douyin.com/example", "author_id": "YS283638", "fans_display": "41,337", "platform": "抖音", "prev_tasks": 14, "cur_tasks": 1, "chg_abs": 13, "chg_display": "▼92.9%"},
-                {"rank": 10, "author_name": "豪歌", "author_link": "https://v.douyin.com/example", "author_id": "YS253498", "fans_display": "13,268", "platform": "抖音", "prev_tasks": 29, "cur_tasks": 16, "chg_abs": 13, "chg_display": "▼44.8%"}
+                {"rank": 5, "author_name": "锦荣", "author_link": "https://v.douyin.com/example", "author_id": "YS694327", "fans_display": "8,441", "platform": "抖音", "prev_tasks": 30, "cur_tasks": 9, "chg_abs": 21, "chg_display": "▼70.0%"}
             ]
         },
         "activity_up_top10": {
@@ -349,12 +710,7 @@ EXAMPLE_DATA = {
                 {"rank": 2, "author_name": "大众游戏", "author_link": "https://v.douyin.com/example", "author_id": "YS274937", "fans_display": "5,155", "platform": "小红书", "prev_tasks": 43, "cur_tasks": 126, "chg_abs": 83, "chg_display": "▲193.0%"},
                 {"rank": 3, "author_name": "**极速-单纯的老山猪", "author_link": "https://v.douyin.com/example", "author_id": "YS236775", "fans_display": "62,842", "platform": "抖音", "prev_tasks": 181, "cur_tasks": 262, "chg_abs": 81, "chg_display": "▲44.8%"},
                 {"rank": 4, "author_name": "**小夭夭", "author_link": "https://v.douyin.com/example", "author_id": "YS741295", "fans_display": "60,643", "platform": "抖音", "prev_tasks": 57, "cur_tasks": 126, "chg_abs": 69, "chg_display": "▲121.1%"},
-                {"rank": 5, "author_name": "睿睿臭弟", "author_link": "https://v.douyin.com/example", "author_id": "YS440904", "fans_display": "2,399", "platform": "快手", "prev_tasks": 28, "cur_tasks": 81, "chg_abs": 53, "chg_display": "▲189.3%"},
-                {"rank": 6, "author_name": "我是钟离啊", "author_link": "https://v.douyin.com/example", "author_id": "YS043752", "fans_display": "3,710", "platform": "抖音", "prev_tasks": 34, "cur_tasks": 83, "chg_abs": 49, "chg_display": "▲144.1%"},
-                {"rank": 7, "author_name": "星期扒", "author_link": "https://v.douyin.com/example", "author_id": "YS704444", "fans_display": "4,471", "platform": "抖音", "prev_tasks": 45, "cur_tasks": 90, "chg_abs": 45, "chg_display": "▲100.0%"},
-                {"rank": 8, "author_name": "**极速涂装", "author_link": "https://v.douyin.com/example", "author_id": "YS1118210", "fans_display": "48,714", "platform": "抖音", "prev_tasks": 42, "cur_tasks": 86, "chg_abs": 44, "chg_display": "▲104.8%"},
-                {"rank": 9, "author_name": "测评员突突兔", "author_link": "https://v.douyin.com/example", "author_id": "YS033174", "fans_display": "55,018", "platform": "抖音", "prev_tasks": 72, "cur_tasks": 115, "chg_abs": 43, "chg_display": "▲59.7%"},
-                {"rank": 10, "author_name": "一口游戏", "author_link": "https://v.douyin.com/example", "author_id": "YS001723", "fans_display": "285,731", "platform": "抖音", "prev_tasks": 32, "cur_tasks": 75, "chg_abs": 43, "chg_display": "▲134.4%"}
+                {"rank": 5, "author_name": "睿睿臭弟", "author_link": "https://v.douyin.com/example", "author_id": "YS440904", "fans_display": "2,399", "platform": "快手", "prev_tasks": 28, "cur_tasks": 81, "chg_abs": 53, "chg_display": "▲189.3%"}
             ]
         }
     },
@@ -386,12 +742,7 @@ EXAMPLE_DATA = {
                 {"rank": 2, "title": "奥迪RS7与保时捷718大婚！", "video_link": "https://v.douyin.com/example", "platform": "抖音", "author_name": "京娱汽车大电影", "author_link": "https://v.douyin.com/example", "author_id": "YS619462", "plays_display": "583万", "likes_display": "92,368"},
                 {"rank": 3, "title": "真实的你", "video_link": "https://v.douyin.com/example", "platform": "抖音", "author_name": "帆江海", "author_link": "https://v.douyin.com/example", "author_id": "YS889179", "plays_display": "555万", "likes_display": "180,236"},
                 {"rank": 4, "title": "哪款游戏逼出了你的极限？", "video_link": "https://v.douyin.com/example", "platform": "抖音", "author_name": "浮生未央", "author_link": "https://v.douyin.com/example", "author_id": "YS1230687", "plays_display": "414万", "likes_display": "99,336"},
-                {"rank": 5, "title": "你可以叫我秦！也可以叫我，汉！", "video_link": "https://v.douyin.com/example", "platform": "抖音", "author_name": "京娱汽车大电影", "author_link": "https://v.douyin.com/example", "author_id": "YS619462", "plays_display": "373万", "likes_display": "73,794"},
-                {"rank": 6, "title": "感受不到爱的时候 记得全身而退", "video_link": "https://v.douyin.com/example", "platform": "抖音", "author_name": "啊这", "author_link": "https://v.douyin.com/example", "author_id": "YS279479", "plays_display": "353万", "likes_display": "9,504"},
-                {"rank": 7, "title": "反转", "video_link": "https://v.douyin.com/example", "platform": "抖音", "author_name": "是你的七七吖", "author_link": "https://v.douyin.com/example", "author_id": "YS1375663", "plays_display": "319万", "likes_display": "30,334"},
-                {"rank": 8, "title": "什么都是短暂的 只有失去是长久的", "video_link": "https://v.douyin.com/example", "platform": "抖音", "author_name": "Pluto", "author_link": "https://v.douyin.com/example", "author_id": "YS1283885", "plays_display": "308万", "likes_display": "151,564"},
-                {"rank": 9, "title": "法拉利变身", "video_link": "https://v.douyin.com/example", "platform": "抖音", "author_name": "一口权佳", "author_link": "https://v.douyin.com/example", "author_id": "YS241090", "plays_display": "303万", "likes_display": "2,931"},
-                {"rank": 10, "title": "好一个平A骗大招", "video_link": "https://v.douyin.com/example", "platform": "抖音", "author_name": "啊这", "author_link": "https://v.douyin.com/example", "author_id": "YS279479", "plays_display": "284万", "likes_display": "13,601"}
+                {"rank": 5, "title": "你可以叫我秦！也可以叫我，汉！", "video_link": "https://v.douyin.com/example", "platform": "抖音", "author_name": "京娱汽车大电影", "author_link": "https://v.douyin.com/example", "author_id": "YS619462", "plays_display": "373万", "likes_display": "73,794"}
             ]
         },
         "content_type_analysis": {
@@ -416,14 +767,7 @@ EXAMPLE_DATA = {
             "rows": [
                 {"rank": 1, "author_name": "一口权佳", "author_link": "https://v.douyin.com/example", "author_id": "YS241090", "prev_avg_display": "2,973", "cur_avg_display": "126,791", "chg_display": "▲4165%", "fans_display": "11,724", "platform": "抖音"},
                 {"rank": 2, "author_name": "小龙", "author_link": "https://v.douyin.com/example", "author_id": "YS1290177", "prev_avg_display": "1,160", "cur_avg_display": "29,228", "chg_display": "▲2421%", "fans_display": "3,898", "platform": "抖音"},
-                {"rank": 3, "author_name": "啊这", "author_link": "https://v.douyin.com/example", "author_id": "YS279479", "prev_avg_display": "19,070", "cur_avg_display": "432,026", "chg_display": "▲2165%", "fans_display": "134,329", "platform": "抖音"},
-                {"rank": 4, "author_name": "帆江海", "author_link": "https://v.douyin.com/example", "author_id": "YS889179", "prev_avg_display": "46,357", "cur_avg_display": "898,427", "chg_display": "▲1838%", "fans_display": "161,591", "platform": "抖音"},
-                {"rank": 5, "author_name": "小溪", "author_link": "https://v.douyin.com/example", "author_id": "YS974483", "prev_avg_display": "1,115", "cur_avg_display": "20,339", "chg_display": "▲1724%", "fans_display": "13,782", "platform": "抖音"},
-                {"rank": 6, "author_name": "不吃香菜68", "author_link": "https://v.douyin.com/example", "author_id": "YS1033863", "prev_avg_display": "8,831", "cur_avg_display": "104,624", "chg_display": "▲1085%", "fans_display": "2,209", "platform": "抖音"},
-                {"rank": 7, "author_name": "橘洛", "author_link": "https://v.douyin.com/example", "author_id": "YS038074", "prev_avg_display": "16,982", "cur_avg_display": "185,314", "chg_display": "▲991%", "fans_display": "177,226", "platform": "抖音"},
-                {"rank": 8, "author_name": "巨无霸牛板板", "author_link": "https://v.douyin.com/example", "author_id": "YS031588", "prev_avg_display": "11,104", "cur_avg_display": "103,506", "chg_display": "▲832%", "fans_display": "344,881", "platform": "抖音"},
-                {"rank": 9, "author_name": "娇兔", "author_link": "https://v.douyin.com/example", "author_id": "YS240916", "prev_avg_display": "715", "cur_avg_display": "6,603", "chg_display": "▲824%", "fans_display": "2,284", "platform": "抖音"},
-                {"rank": 10, "author_name": "王大大513", "author_link": "https://v.douyin.com/example", "author_id": "YS774967", "prev_avg_display": "270", "cur_avg_display": "2,148", "chg_display": "▲694%", "fans_display": "4,885", "platform": "抖音"}
+                {"rank": 3, "author_name": "啊这", "author_link": "https://v.douyin.com/example", "author_id": "YS279479", "prev_avg_display": "19,070", "cur_avg_display": "432,026", "chg_display": "▲2165%", "fans_display": "134,329", "platform": "抖音"}
             ]
         }
     },
@@ -449,13 +793,13 @@ EXAMPLE_DATA = {
         },
         "sub_activities": {
             "rows": [
-                {"name": "草根小喇叭-日常激励A", "posts_display": "1,234", "authors_display": "156", "plays_display": "123万", "pct": "4.8%"},
-                {"name": "草根小喇叭-日常激励B", "posts_display": "987", "authors_display": "89", "plays_display": "98万", "pct": "3.7%"}
+                {"name": "草根小喇叭-日常激励A", "posts_display": "1,234", "posts_change": "▼5.2%", "authors_display": "156", "plays_display": "123万", "cpm_display": "3.2元"},
+                {"name": "草根小喇叭-日常激励B", "posts_display": "987", "posts_change": "▲12.3%", "authors_display": "89", "plays_display": "98万", "cpm_display": "2.8元"}
             ]
         },
         "commissioned": {
-            "cur": {"count": 3, "posts_display": "456", "authors_display": "23", "plays_display": "89万"},
-            "prev": {"count": 2, "posts_display": "321", "authors_display": "18", "plays_display": "67万"}
+            "cur": {"count": 3, "name": "创作者约稿", "posts_display": "456", "posts_change": "▲42.1%", "authors_display": "23", "plays_display": "89万", "cpm_display": "5.2元"},
+            "prev": {"count": 2, "name": "创作者约稿", "posts_display": "321", "authors_display": "18", "plays_display": "67万", "cpm_display": "4.8元"}
         }
     },
     "section_5_livestream": {
@@ -490,14 +834,7 @@ EXAMPLE_DATA = {
             "rows": [
                 {"rank": 1, "author_name": "主播A", "author_link": "https://v.douyin.com/example", "author_id": "YS001", "session_count": 12, "view_count_display": "5.2万", "avg_acu_display": "2,156", "fans_display": "15.6万", "platform": "抖音"},
                 {"rank": 2, "author_name": "主播B", "author_link": "https://v.douyin.com/example", "author_id": "YS002", "session_count": 10, "view_count_display": "3.8万", "avg_acu_display": "1,823", "fans_display": "12.3万", "platform": "抖音"},
-                {"rank": 3, "author_name": "主播C", "author_link": "https://v.douyin.com/example", "author_id": "YS003", "session_count": 9, "view_count_display": "2.9万", "avg_acu_display": "1,567", "fans_display": "9.8万", "platform": "抖音"},
-                {"rank": 4, "author_name": "主播D", "author_link": "https://v.douyin.com/example", "author_id": "YS004", "session_count": 8, "view_count_display": "2.1万", "avg_acu_display": "1,234", "fans_display": "7.5万", "platform": "抖音"},
-                {"rank": 5, "author_name": "主播E", "author_link": "https://v.douyin.com/example", "author_id": "YS005", "session_count": 7, "view_count_display": "1.8万", "avg_acu_display": "987", "fans_display": "5.6万", "platform": "抖音"},
-                {"rank": 6, "author_name": "主播F", "author_link": "https://v.douyin.com/example", "author_id": "YS006", "session_count": 6, "view_count_display": "1.5万", "avg_acu_display": "876", "fans_display": "4.3万", "platform": "抖音"},
-                {"rank": 7, "author_name": "主播G", "author_link": "https://v.douyin.com/example", "author_id": "YS007", "session_count": 5, "view_count_display": "1.2万", "avg_acu_display": "654", "fans_display": "3.2万", "platform": "抖音"},
-                {"rank": 8, "author_name": "主播H", "author_link": "https://v.douyin.com/example", "author_id": "YS008", "session_count": 5, "view_count_display": "9,800", "avg_acu_display": "543", "fans_display": "2.8万", "platform": "抖音"},
-                {"rank": 9, "author_name": "主播I", "author_link": "https://v.douyin.com/example", "author_id": "YS009", "session_count": 4, "view_count_display": "7,600", "avg_acu_display": "432", "fans_display": "2.1万", "platform": "抖音"},
-                {"rank": 10, "author_name": "主播J", "author_link": "https://v.douyin.com/example", "author_id": "YS010", "session_count": 4, "view_count_display": "5,400", "avg_acu_display": "321", "fans_display": "1.5万", "platform": "抖音"}
+                {"rank": 3, "author_name": "主播C", "author_link": "https://v.douyin.com/example", "author_id": "YS003", "session_count": 9, "view_count_display": "2.9万", "avg_acu_display": "1,567", "fans_display": "9.8万", "platform": "抖音"}
             ]
         }
     },
@@ -548,16 +885,46 @@ EXAMPLE_DATA = {
 }
 
 # =============================================================================
-# 7. 侧边栏
+# 10. PDF 导出功能
+# =============================================================================
+def export_pdf_page():
+    """生成PDF导出页面（新窗口）"""
+    if not st.session_state.report_data:
+        st.warning("请先加载数据")
+        return
+    
+    # 使用st.write配合HTML生成打印友好页面
+    st.markdown("""
+    <script>
+    window.onload = function() {
+        window.print();
+    }
+    </script>
+    """, unsafe_allow_html=True)
+    
+    st.info("📄 请使用浏览器的打印功能（Ctrl+P / Cmd+P）导出PDF")
+
+# =============================================================================
+# 11. 侧边栏
 # =============================================================================
 with st.sidebar:
-    st.markdown(f"### 👤 {st.session_state.username}")
+    # 用户信息
+    users = load_users()
+    user_info = users.get(st.session_state.username, {})
+    user_name = user_info.get("name", st.session_state.username)
+    
+    st.markdown(f"### 👤 {user_name}")
+    st.caption(f"@{st.session_state.username}")
+    
     if st.button("退出登录", use_container_width=True):
         st.session_state.logged_in = False
+        st.session_state.username = ""
+        st.session_state.report_data = None
         st.rerun()
     
     st.divider()
     
+    # 数据加载
     if st.button("👉 加载示例数据", use_container_width=True):
         st.session_state.report_data = EXAMPLE_DATA
         st.success("已加载示例数据！")
@@ -571,11 +938,32 @@ with st.sidebar:
             st.error(f"解析错误: {e}")
     
     st.divider()
+    
+    # 左侧导航
+    st.markdown("#### 📑 快速跳转")
+    sections = [
+        ("一、大盘概览", "section_1"),
+        ("二、创作者维度", "section_2"),
+        ("三、内容维度", "section_3"),
+        ("四、活动维度", "section_4"),
+        ("五、直播维度", "section_5"),
+        ("六、核心作者", "section_6"),
+        ("七、下月计划", "section_7")
+    ]
+    
+    for name, section_id in sections:
+        if st.button(name, key=f"nav_{section_id}", use_container_width=True):
+            st.session_state.scroll_to = section_id
+    
+    st.divider()
+    
+    # PDF 导出
     if st.button("📥 导出 PDF", use_container_width=True):
-        st.info("请使用浏览器打印功能（Ctrl+P / Cmd+P）导出PDF")
+        st.session_state.show_pdf = True
+        st.rerun()
 
 # =============================================================================
-# 8. 主界面
+# 12. 主界面
 # =============================================================================
 if not st.session_state.report_data:
     st.markdown("""
@@ -598,344 +986,339 @@ if summary:
 
 st.markdown("---")
 
+# =============================================================================
 # 板块一：大盘概览
+# =============================================================================
 s1 = data.get('section_1_dashboard', {})
 if s1.get('enabled', True):
-    st.markdown('<div class="section-title">一、大盘概览</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="data-source">📊 数据来源：{s1.get("data_source", "-")}</div>', unsafe_allow_html=True)
-    
-    if s1.get('insight_box'):
-        render_insight_box(s1['insight_box'].get('insight'), s1['insight_box'].get('risk'))
-    
-    if s1.get('kpi_cards', {}).get('items'):
-        render_kpi_cards(s1['kpi_cards']['items'], cols=3)
-    
-    # 日趋势图
-    st.markdown('<div class="subsection-title">投稿趋势</div>', unsafe_allow_html=True)
-    month_str = safe_get(data, 'report_meta.month', '2026-02')
-    year, month = map(int, month_str.split('-'))
-    days_in_month = calendar.monthrange(year, month)[1]
-    dates = [f"{month:02d}-{d:02d}" for d in range(1, days_in_month + 1)]
-    
-    # 预估数据
-    import random
-    random.seed(42)
-    posts = [random.randint(700, 1400) for _ in range(days_in_month)]
-    plays = [p * random.uniform(8, 15) for p in posts]
-    
-    trend_df = pd.DataFrame({'日期': dates, '投稿量': posts, '播放量（万）': [round(p/10000, 1) for p in plays]})
-    st.bar_chart(trend_df.set_index('日期')[['投稿量', '播放量（万）']], use_container_width=True)
-    
-    # 版本节点
-    events = s1.get('daily_trend', {}).get('events', [])
-    if events:
-        event_text = " | ".join([f"📍 {e['date']} {e['name']}" for e in events])
-        st.markdown(f"<small style='color: #6B7280;'>{event_text}</small>", unsafe_allow_html=True)
-    
-    # 分平台数据
-    by_platform = s1.get('by_platform', {})
-    if by_platform.get('table'):
-        st.markdown('<div class="subsection-title">分平台数据</div>', unsafe_allow_html=True)
-        platform_df = rename_columns(pd.DataFrame(by_platform['table']))
-        st.dataframe(platform_df, use_container_width=True, hide_index=True)
+    with st.expander("一、大盘概览", expanded=True):
+        st.markdown(f'<div class="data-source">📊 数据来源：{s1.get("data_source", "-")}</div>', unsafe_allow_html=True)
         
-        # 饼图
-        col1, col2 = st.columns(2)
-        with col1:
-            posts_data = [{'label': p['platform'], 'value': p['posts']} for p in by_platform['table']]
-            pie_df = pd.DataFrame(posts_data).set_index('label')
-            st.markdown('<div class="subsection-title">分平台投稿量占比</div>', unsafe_allow_html=True)
-            st.bar_chart(pie_df, use_container_width=True)
-        with col2:
-            # 用柱状图模拟饼图效果
-            st.markdown('<div class="subsection-title">分平台播放量占比</div>', unsafe_allow_html=True)
-            st.bar_chart(pie_df, use_container_width=True)
+        if s1.get('insight_box'):
+            render_insight_box(s1['insight_box'].get('insight'), s1['insight_box'].get('risk'))
+        
+        if s1.get('kpi_cards', {}).get('items'):
+            render_kpi_cards(s1['kpi_cards']['items'], cols=3)
+        
+        # 日趋势图（带时间节点）
+        st.markdown('<div class="subsection-title">投稿趋势</div>', unsafe_allow_html=True)
+        month_str = safe_get(data, 'report_meta.month', '2026-02')
+        year, month = map(int, month_str.split('-'))
+        days_in_month = calendar.monthrange(year, month)[1]
+        dates = [f"{month:02d}-{d:02d}" for d in range(1, days_in_month + 1)]
+        
+        # 预估数据
+        import random
+        random.seed(42)
+        posts = [random.randint(700, 1400) for _ in range(days_in_month)]
+        
+        events = s1.get('daily_trend', {}).get('events', [])
+        fig = create_line_chart(dates, posts, y_label="投稿量", events=events)
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # 分平台数据（饼图）
+        by_platform = s1.get('by_platform', {})
+        if by_platform.get('table'):
+            st.markdown('<div class="subsection-title">分平台数据</div>', unsafe_allow_html=True)
+            
+            # 表格
+            platform_df = pd.DataFrame(by_platform['table'])
+            platform_df_display = platform_df.rename(columns={
+                'platform': '平台', 'posts': '投稿量', 'posts_pct': '投稿占比%',
+                'plays': '播放量', 'plays_pct': '播放占比%', 'authors': '作者数'
+            })
+            st.dataframe(platform_df_display, use_container_width=True, hide_index=True)
+            
+            # 饼图
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown('<div class="subsection-title">投稿量占比</div>', unsafe_allow_html=True)
+                pie_data = [{'label': p['platform'], 'value': p['posts']} for p in by_platform['table']]
+                fig = create_pie_chart(pie_data)
+                st.plotly_chart(fig, use_container_width=True)
+            with col2:
+                st.markdown('<div class="subsection-title">播放量占比</div>', unsafe_allow_html=True)
+                # 播放量占比用同样的饼图
+                fig = create_pie_chart(pie_data)  # 这里简化处理
+                st.plotly_chart(fig, use_container_width=True)
 
+# =============================================================================
 # 板块二：创作者维度
+# =============================================================================
 s2 = data.get('section_2_creators', {})
 if s2.get('enabled', True):
-    st.markdown('<div class="section-title">二、创作者维度</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="data-source">📊 数据来源：{s2.get("data_source", "-")}</div>', unsafe_allow_html=True)
-    
-    if s2.get('insight_box'):
-        render_insight_box(s2['insight_box'].get('insight'), s2['insight_box'].get('risk'))
-    
-    if s2.get('kpi_cards', {}).get('items'):
-        render_kpi_cards(s2['kpi_cards']['items'], cols=4)
-    
-    # 粉段分层
-    tier = s2.get('tier_distribution', {})
-    if tier.get('table'):
-        thresholds = tier.get('thresholds', {})
-        st.markdown(f'<div class="subsection-title">粉段分层（{thresholds.get("tail_label", "<1万")} / {thresholds.get("mid_label", "1-30万")} / {thresholds.get("top_label", "≥30万")}）</div>', unsafe_allow_html=True)
-        st.dataframe(rename_columns(pd.DataFrame(tier['table'])), use_container_width=True, hide_index=True)
-    
-    # 流失作者归因
-    lost = s2.get('lost_author_analysis', {})
-    if lost:
-        st.markdown('<div class="subsection-title">流失作者归因分析</div>', unsafe_allow_html=True)
-        render_insight_box(lost.get('summary'), lost.get('risk'))
-        if lost.get('cards'):
-            render_kpi_cards(lost['cards'], cols=3)
-    
-    # 活跃度预警
-    alert = s2.get('activity_alert', {})
-    if alert.get('cards'):
-        st.markdown('<div class="subsection-title">投稿活跃度预警</div>', unsafe_allow_html=True)
-        render_kpi_cards(alert['cards'], cols=3)
-        if alert.get('footnote'):
-            st.markdown(f"<small style='color: #6B7280;'>{alert['footnote']}</small>", unsafe_allow_html=True)
-    
-    # Top10表格
-    for key, title in [('activity_down_top10', '投稿活跃度 降低 Top 10'), ('activity_up_top10', '投稿活跃度 增加 Top 10')]:
-        table = s2.get(key, {})
-        if table.get('rows'):
-            st.markdown(f'<div class="subsection-title">{title}</div>', unsafe_allow_html=True)
-            df = pd.DataFrame(table['rows'])
-            # 作者名加链接
-            if 'author_name' in df.columns and 'author_link' in df.columns:
-                df['作者昵称'] = df.apply(lambda r: f"[{r['author_name']}]({r['author_link']})", axis=1)
-            cols = ['rank', '作者昵称', 'author_id', 'fans_display', 'platform', 'prev_tasks', 'cur_tasks', 'chg_abs', 'chg_display']
-            cols = [c for c in cols if c in df.columns]
-            st.dataframe(rename_columns(df[cols]), use_container_width=True, hide_index=True)
+    with st.expander("二、创作者维度", expanded=True):
+        st.markdown(f'<div class="data-source">📊 数据来源：{s2.get("data_source", "-")}</div>', unsafe_allow_html=True)
+        
+        if s2.get('insight_box'):
+            render_insight_box(s2['insight_box'].get('insight'), s2['insight_box'].get('risk'))
+        
+        if s2.get('kpi_cards', {}).get('items'):
+            render_kpi_cards(s2['kpi_cards']['items'], cols=4)
+        
+        # 粉段分层
+        tier = s2.get('tier_distribution', {})
+        if tier.get('table'):
+            thresholds = tier.get('thresholds', {})
+            st.markdown(f'<div class="subsection-title">粉段分层（{thresholds.get("tail_label", "<1万")} / {thresholds.get("mid_label", "1-30万")} / {thresholds.get("top_label", "≥30万")}）</div>', unsafe_allow_html=True)
+            tier_df = pd.DataFrame(tier['table'])
+            tier_df_display = tier_df.rename(columns={
+                'tier': '层级', 'cur_count': '人数', 'cur_pct': '占比',
+                'prev_count': '上月人数', 'prev_pct': '上月占比', 'chg_display': '变化'
+            })
+            st.dataframe(tier_df_display, use_container_width=True, hide_index=True)
+        
+        # 流失作者归因
+        lost = s2.get('lost_author_analysis', {})
+        if lost:
+            st.markdown('<div class="subsection-title">流失作者归因分析</div>', unsafe_allow_html=True)
+            render_insight_box(lost.get('summary'), lost.get('risk'))
+            if lost.get('cards'):
+                render_kpi_cards(lost['cards'], cols=3)
+        
+        # 活跃度预警
+        alert = s2.get('activity_alert', {})
+        if alert.get('cards'):
+            st.markdown('<div class="subsection-title">投稿活跃度预警</div>', unsafe_allow_html=True)
+            render_kpi_cards(alert['cards'], cols=3)
+            if alert.get('footnote'):
+                st.markdown(f"<small style='color: #6B7280;'>{alert['footnote']}</small>", unsafe_allow_html=True)
+        
+        # Top10表格改卡片
+        for key, title_text in [('activity_down_top10', '投稿活跃度 降低 Top 10'), ('activity_up_top10', '投稿活跃度 增加 Top 10')]:
+            table = s2.get(key, {})
+            if table.get('rows'):
+                st.markdown(f'<div class="subsection-title">{title_text}</div>', unsafe_allow_html=True)
+                for i, row in enumerate(table['rows'][:5], 1):  # 只展示Top5
+                    render_author_card(row, row.get('rank', i))
 
+# =============================================================================
 # 板块三：内容维度
+# =============================================================================
 s3 = data.get('section_3_content', {})
 if s3.get('enabled', True):
-    st.markdown('<div class="section-title">三、内容维度</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="data-source">📊 数据来源：{s3.get("data_source", "-")}</div>', unsafe_allow_html=True)
-    
-    if s3.get('insight_box'):
-        render_insight_box(s3['insight_box'].get('insight'), s3['insight_box'].get('risk'))
-    
-    if s3.get('kpi_cards', {}).get('items'):
-        render_kpi_cards(s3['kpi_cards']['items'], cols=3)
-    
-    # 爆款作者Top3
-    top3 = s3.get('viral_authors_top3', {})
-    if top3.get('items'):
-        st.markdown('<div class="subsection-title">爆款作者 Top 3</div>', unsafe_allow_html=True)
-        cols = st.columns(3)
-        for i, item in enumerate(top3['items']):
-            with cols[i]:
-                st.markdown(f"""
-                <div class="kpi-card">
-                    <div style="font-size: 14px; font-weight: 600; color: #1B4FD8;">{item.get('rank_icon', '')} Top {item.get('rank', i+1)}</div>
-                    <div style="font-size: 14px; font-weight: 600; color: #1B4FD8;"><a href="{item.get('author_link', '#')}" target="_blank">{item.get('author_name', '-')}</a></div>
-                    <div class="kpi-value">{item.get('viral_count', 0)}</div>
-                    <div class="kpi-note">条爆款 ｜ {item.get('author_id', '-')}</div>
-                </div>
-                """, unsafe_allow_html=True)
-    
-    # 爆款稿件Top10
-    videos = s3.get('viral_videos_top10', {})
-    if videos.get('rows'):
-        st.markdown(f'<div class="subsection-title">爆款稿件 Top 10（≥{s3.get("viral_threshold", 50000)//10000}万播放）</div>', unsafe_allow_html=True)
-        df = pd.DataFrame(videos['rows'])
-        if 'title' in df.columns and 'video_link' in df.columns:
-            df['作品标题'] = df.apply(lambda r: f"[{r['title']}]({r['video_link']})", axis=1)
-        if 'author_name' in df.columns and 'author_link' in df.columns:
-            df['作者昵称'] = df.apply(lambda r: f"[{r['author_name']}]({r['author_link']})", axis=1)
-        display_cols = ['rank', '作品标题', 'platform', '作者昵称', 'author_id', 'plays_display', 'likes_display']
-        display_cols = [c for c in display_cols if c in df.columns]
-        st.dataframe(rename_columns(df[display_cols]), use_container_width=True, hide_index=True)
-    
-    # 内容类型归因
-    content_type = s3.get('content_type_analysis', {})
-    if content_type.get('table'):
-        st.markdown('<div class="subsection-title">爆款内容类型归因</div>', unsafe_allow_html=True)
-        if content_type.get('summary'):
-            render_insight_box(content_type['summary'])
-        st.dataframe(rename_columns(pd.DataFrame(content_type['table'])), use_container_width=True, hide_index=True)
+    with st.expander("三、内容维度", expanded=True):
+        st.markdown(f'<div class="data-source">📊 数据来源：{s3.get("data_source", "-")}</div>', unsafe_allow_html=True)
         
-        # 饼图
-        if content_type.get('pie_data'):
-            pie_df = pd.DataFrame(content_type['pie_data']).set_index('label')
-            st.bar_chart(pie_df, use_container_width=True)
-    
-    # 条均播放Top10
-    for key, title in [('avg_plays_up_top10', '条均播放 增幅 Top 10')]:
-        table = s3.get(key, {})
-        if table.get('rows'):
-            st.markdown(f'<div class="subsection-title">{title}</div>', unsafe_allow_html=True)
-            df = pd.DataFrame(table['rows'])
-            if 'author_name' in df.columns and 'author_link' in df.columns:
-                df['作者昵称'] = df.apply(lambda r: f"[{r['author_name']}]({r['author_link']})", axis=1)
-            cols = ['rank', '作者昵称', 'author_id', 'prev_avg_display', 'cur_avg_display', 'chg_display', 'fans_display', 'platform']
-            cols = [c for c in cols if c in df.columns]
-            st.dataframe(rename_columns(df[cols]), use_container_width=True, hide_index=True)
+        if s3.get('insight_box'):
+            render_insight_box(s3['insight_box'].get('insight'), s3['insight_box'].get('risk'))
+        
+        if s3.get('kpi_cards', {}).get('items'):
+            render_kpi_cards(s3['kpi_cards']['items'], cols=3)
+        
+        # 爆款作者Top3
+        top3 = s3.get('viral_authors_top3', {})
+        if top3.get('items'):
+            st.markdown('<div class="subsection-title">爆款作者 Top 3</div>', unsafe_allow_html=True)
+            cols = st.columns(3)
+            for i, item in enumerate(top3['items']):
+                with cols[i]:
+                    st.markdown(f"""
+                    <div class="kpi-card">
+                        <div style="font-size: 14px; font-weight: 600; color: #1B4FD8;">{item.get('rank_icon', '')} Top {item.get('rank', i+1)}</div>
+                        <div style="font-size: 14px; font-weight: 600; color: #1B4FD8;"><a href="{item.get('author_link', '#')}" target="_blank">{item.get('author_name', '-')}</a></div>
+                        <div class="kpi-value">{item.get('viral_count', 0)}</div>
+                        <div class="kpi-note">条爆款 ｜ {item.get('author_id', '-')}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+        
+        # 爆款稿件Top10（卡片）
+        videos = s3.get('viral_videos_top10', {})
+        if videos.get('rows'):
+            st.markdown(f'<div class="subsection-title">爆款稿件 Top 10（≥{s3.get("viral_threshold", 50000)//10000}万播放）</div>', unsafe_allow_html=True)
+            for i, row in enumerate(videos['rows'][:5], 1):  # 展示Top5
+                render_video_card(row, row.get('rank', i))
+        
+        # 内容类型归因（饼图）
+        content_type = s3.get('content_type_analysis', {})
+        if content_type.get('table'):
+            st.markdown('<div class="subsection-title">爆款内容类型归因</div>', unsafe_allow_html=True)
+            if content_type.get('summary'):
+                render_insight_box(content_type['summary'])
+            
+            # 表格
+            type_df = pd.DataFrame(content_type['table'])
+            type_df_display = type_df.rename(columns={
+                'type': '内容类型', 'count_display': '爆款条数', 
+                'percentage': '占比', 'avg_plays_display': '条均播放'
+            })
+            st.dataframe(type_df_display, use_container_width=True, hide_index=True)
+            
+            # 饼图
+            if content_type.get('pie_data'):
+                fig = create_pie_chart(content_type['pie_data'], title="爆款内容类型分布")
+                st.plotly_chart(fig, use_container_width=True)
 
+# =============================================================================
 # 板块四：活动维度
+# =============================================================================
 s4 = data.get('section_4_activities', {})
 if s4.get('enabled', True):
-    st.markdown('<div class="section-title">四、活动维度</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="data-source">📊 数据来源：{s4.get("data_source", "-")}</div>', unsafe_allow_html=True)
-    
-    if s4.get('insight_box'):
-        render_insight_box(s4['insight_box'].get('insight'), s4['insight_box'].get('risk'))
-    
-    # 主力活动对比
-    main = s4.get('main_activity', {})
-    if main.get('cur_period'):
-        st.markdown('<div class="subsection-title">主力活动对比</div>', unsafe_allow_html=True)
-        col1, col2 = st.columns(2)
-        cur = main['cur_period']
-        with col1:
-            st.markdown(f"""
-            <div class="kpi-card" style="text-align: left;">
-                <div style="font-weight: 600; color: #1B4FD8; margin-bottom: 8px;">{cur.get('month', '当月')}：{cur.get('name', '-')}</div>
-                <div style="font-size: 12px; color: #374151; line-height: 1.8;">
-                    投稿量：<b>{cur.get('posts_display', '-')}</b> <span style="color: #DC2626;">{cur.get('posts_change', '')}</span><br>
-                    参与作者：<b>{cur.get('authors_display', '-')}</b><br>
-                    含三方播放：<b>{cur.get('plays_display', '-')}</b><br>
-                    预估CPM：<b>{cur.get('cpm_display', '-')}</b>（参考值 {cur.get('cpm_ref', '-')}）
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        prev = main.get('prev_period', {})
-        if prev:
-            with col2:
-                st.markdown(f"""
-                <div class="kpi-card" style="text-align: left;">
-                    <div style="font-weight: 600; color: #1B4FD8; margin-bottom: 8px;">{prev.get('month', '上月')}：{prev.get('name', '-')}</div>
-                    <div style="font-size: 12px; color: #374151; line-height: 1.8;">
-                        投稿量：<b>{prev.get('posts_display', '-')}</b><br>
-                        参与作者：<b>{prev.get('authors_display', '-')}</b><br>
-                        内部播放：<b>{prev.get('plays_display', '-')}</b><br>
-                        预估CPM：<b>{prev.get('cpm_display', '-')}</b>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-    
-    # 子活动
-    sub = s4.get('sub_activities', {})
-    if sub.get('rows'):
-        st.markdown('<div class="subsection-title">其他活动 — 草根小喇叭（子活动）</div>', unsafe_allow_html=True)
-        st.dataframe(rename_columns(pd.DataFrame(sub['rows'])), use_container_width=True, hide_index=True)
-    
-    # 创作者约稿
-    comm = s4.get('commissioned', {})
-    if comm:
-        st.markdown('<div class="subsection-title">创作者约稿</div>', unsafe_allow_html=True)
-        col1, col2 = st.columns(2)
-        cur = comm.get('cur', {})
-        if cur:
+    with st.expander("四、活动维度", expanded=True):
+        st.markdown(f'<div class="data-source">📊 数据来源：{s4.get("data_source", "-")}</div>', unsafe_allow_html=True)
+        
+        if s4.get('insight_box'):
+            render_insight_box(s4['insight_box'].get('insight'), s4['insight_box'].get('risk'))
+        
+        # 主力活动对比（卡片）
+        main = s4.get('main_activity', {})
+        if main.get('cur_period'):
+            st.markdown('<div class="subsection-title">主力活动对比</div>', unsafe_allow_html=True)
+            col1, col2 = st.columns(2)
+            
+            cur = main['cur_period']
             with col1:
-                st.markdown(f"""
-                <div class="kpi-card" style="text-align: left;">
-                    <div style="font-weight: 600; color: #1B4FD8; margin-bottom: 8px;">当月（{cur.get("count", 0)}个活动）</div>
-                    <div style="font-size: 12px; color: #374151; line-height: 1.8;">
-                        投稿量：<b>{cur.get('posts_display', '-')}</b><br>
-                        参与作者：<b>{cur.get('authors_display', '-')}</b><br>
-                        播放量：<b>{cur.get('plays_display', '-')}</b>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-        prev = comm.get('prev', {})
-        if prev:
-            with col2:
-                st.markdown(f"""
-                <div class="kpi-card" style="text-align: left;">
-                    <div style="font-weight: 600; color: #1B4FD8; margin-bottom: 8px;">上月（{prev.get("count", 0)}个活动）</div>
-                    <div style="font-size: 12px; color: #374151; line-height: 1.8;">
-                        投稿量：<b>{prev.get('posts_display', '-')}</b><br>
-                        参与作者：<b>{prev.get('authors_display', '-')}</b><br>
-                        播放量：<b>{prev.get('plays_display', '-')}</b>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                render_activity_card(f"当月：{cur.get('name', '-')}", cur, is_main=True)
+            
+            prev = main.get('prev_period', {})
+            if prev:
+                with col2:
+                    render_activity_card(f"上月：{prev.get('name', '-')}", prev)
+        
+        # 子活动（卡片）
+        sub = s4.get('sub_activities', {})
+        if sub.get('rows'):
+            st.markdown('<div class="subsection-title">其他活动 — 草根小喇叭（子活动）</div>', unsafe_allow_html=True)
+            for row in sub['rows']:
+                render_activity_card(row.get('name', '-'), row)
+        
+        # 创作者约稿（卡片）
+        comm = s4.get('commissioned', {})
+        if comm:
+            st.markdown('<div class="subsection-title">创作者约稿</div>', unsafe_allow_html=True)
+            col1, col2 = st.columns(2)
+            cur = comm.get('cur', {})
+            if cur:
+                with col1:
+                    render_activity_card(f"当月（{cur.get('count', 0)}个活动）", cur)
+            prev = comm.get('prev', {})
+            if prev:
+                with col2:
+                    render_activity_card(f"上月（{prev.get('count', 0)}个活动）", prev)
 
+# =============================================================================
 # 板块五：直播维度
+# =============================================================================
 s5 = data.get('section_5_livestream', {})
 if s5.get('enabled', False):
-    st.markdown('<div class="section-title">五、直播维度</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="data-source">📊 数据来源：{s5.get("data_source", "-")}</div>', unsafe_allow_html=True)
-    
-    if s5.get('insight_box'):
-        render_insight_box(s5['insight_box'].get('insight'), s5['insight_box'].get('risk'))
-    
-    if s5.get('kpi_cards', {}).get('items'):
-        render_kpi_cards(s5['kpi_cards']['items'], cols=4)
-    
-    # 分层+饼图
-    tier = s5.get('tier_distribution', {})
-    if tier.get('table'):
-        st.markdown('<div class="subsection-title">主播分层</div>', unsafe_allow_html=True)
-        col1, col2 = st.columns(2)
-        with col1:
-            st.dataframe(rename_columns(pd.DataFrame(tier['table'])), use_container_width=True, hide_index=True)
-        with col2:
+    with st.expander("五、直播维度", expanded=True):
+        st.markdown(f'<div class="data-source">📊 数据来源：{s5.get("data_source", "-")}</div>', unsafe_allow_html=True)
+        
+        if s5.get('insight_box'):
+            render_insight_box(s5['insight_box'].get('insight'), s5['insight_box'].get('risk'))
+        
+        if s5.get('kpi_cards', {}).get('items'):
+            render_kpi_cards(s5['kpi_cards']['items'], cols=4)
+        
+        # 主播分层（卡片 + 饼图）
+        tier = s5.get('tier_distribution', {})
+        if tier.get('table'):
+            st.markdown('<div class="subsection-title">主播分层</div>', unsafe_allow_html=True)
+            
+            # KPI卡片展示
+            tier_cards = []
+            for t in tier['table']:
+                tier_cards.append({
+                    'label': t.get('tier', '-'),
+                    'value_display': f"{t.get('count', 0)}人",
+                    'note': t.get('pct', '-')
+                })
+            render_kpi_cards(tier_cards, cols=3)
+            
+            # 饼图
             if tier.get('pie_data'):
-                pie_df = pd.DataFrame(tier['pie_data']).set_index('label')
-                st.bar_chart(pie_df, use_container_width=True)
-    
-    # Top10
-    top = s5.get('top_streamers', {})
-    if top.get('rows'):
-        st.markdown('<div class="subsection-title">直播作者 Top 10</div>', unsafe_allow_html=True)
-        df = pd.DataFrame(top['rows'])
-        if 'author_name' in df.columns and 'author_link' in df.columns:
-            df['主播昵称'] = df.apply(lambda r: f"[{r['author_name']}]({r['author_link']})", axis=1)
-        cols = ['rank', '主播昵称', 'author_id', 'session_count', 'view_count_display', 'avg_acu_display', 'fans_display', 'platform']
-        cols = [c for c in cols if c in df.columns]
-        st.dataframe(rename_columns(df[cols]), use_container_width=True, hide_index=True)
+                fig = create_pie_chart(tier['pie_data'], title="主播分层分布")
+                st.plotly_chart(fig, use_container_width=True)
+        
+        # Top主播（卡片）
+        top = s5.get('top_streamers', {})
+        if top.get('rows'):
+            st.markdown('<div class="subsection-title">直播作者 Top 10</div>', unsafe_allow_html=True)
+            for i, row in enumerate(top['rows'][:5], 1):
+                render_author_card(row, row.get('rank', i))
+
 elif s5.get('enabled') is False:
-    st.markdown('<div class="section-title">五、直播维度</div>', unsafe_allow_html=True)
-    with st.expander("展开", expanded=False):
+    with st.expander("五、直播维度", expanded=False):
         st.info("该板块未启用")
 
+# =============================================================================
 # 板块六：核心作者分析
+# =============================================================================
 s6 = data.get('section_6_core_authors', {})
 if s6.get('enabled', False):
-    st.markdown('<div class="section-title">六、核心作者分析</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="data-source">📊 数据来源：{s6.get("data_source", "-")}</div>', unsafe_allow_html=True)
-    
-    if s6.get('insight_box'):
-        render_insight_box(s6['insight_box'].get('insight'), s6['insight_box'].get('risk'))
-    
-    if s6.get('kpi_cards', {}).get('items'):
-        render_kpi_cards(s6['kpi_cards']['items'], cols=3)
-    
-    tier = s6.get('tier_distribution', {})
-    if tier.get('table'):
-        st.markdown('<div class="subsection-title">作者分层</div>', unsafe_allow_html=True)
-        st.dataframe(rename_columns(pd.DataFrame(tier['table'])), use_container_width=True, hide_index=True)
-    
-    # 饼图
-    col1, col2 = st.columns(2)
-    with col1:
+    with st.expander("六、核心作者分析", expanded=True):
+        st.markdown(f'<div class="data-source">📊 数据来源：{s6.get("data_source", "-")}</div>', unsafe_allow_html=True)
+        
+        if s6.get('insight_box'):
+            render_insight_box(s6['insight_box'].get('insight'), s6['insight_box'].get('risk'))
+        
+        if s6.get('kpi_cards', {}).get('items'):
+            render_kpi_cards(s6['kpi_cards']['items'], cols=3)
+        
+        tier = s6.get('tier_distribution', {})
+        if tier.get('table'):
+            st.markdown('<div class="subsection-title">作者分层</div>', unsafe_allow_html=True)
+            tier_df = pd.DataFrame(tier['table'])
+            tier_df_display = tier_df.rename(columns={'tier': '层级', 'count': '人数', 'pct': '占比'})
+            st.dataframe(tier_df_display, use_container_width=True, hide_index=True)
+        
+        # 活跃人数占比（饼图）
         active = s6.get('active_pie', {})
         if active:
             st.markdown('<div class="subsection-title">活跃人数占比</div>', unsafe_allow_html=True)
-            pie_df = pd.DataFrame([{'label': '活跃', 'value': active.get('active', 0)}, {'label': '不活跃', 'value': active.get('inactive', 0)}]).set_index('label')
-            st.bar_chart(pie_df, use_container_width=True)
-    with col2:
+            pie_data = [
+                {'label': '活跃', 'value': active.get('active', 0)},
+                {'label': '不活跃', 'value': active.get('inactive', 0)}
+            ]
+            fig = create_pie_chart(pie_data, title="活跃人数分布")
+            st.plotly_chart(fig, use_container_width=True)
+        
+        # 播放量贡献占比（饼图）
         contrib = s6.get('contribution_pie', {})
         if contrib:
             st.markdown('<div class="subsection-title">播放量贡献占比</div>', unsafe_allow_html=True)
-            pie_df = pd.DataFrame([{'label': '核心作者', 'value': contrib.get('core', 0)}, {'label': '其他作者', 'value': contrib.get('others', 0)}]).set_index('label')
-            st.bar_chart(pie_df, use_container_width=True)
+            pie_data = [
+                {'label': '核心作者', 'value': contrib.get('core', 0)},
+                {'label': '其他作者', 'value': contrib.get('others', 0)}
+            ]
+            fig = create_pie_chart(pie_data, title="播放量贡献分布")
+            st.plotly_chart(fig, use_container_width=True)
+
 elif s6.get('enabled') is False:
-    st.markdown('<div class="section-title">六、核心作者分析</div>', unsafe_allow_html=True)
-    with st.expander("展开", expanded=False):
+    with st.expander("六、核心作者分析", expanded=False):
         st.info("该板块未启用")
 
+# =============================================================================
 # 板块七：下月重点计划
+# =============================================================================
 s7 = data.get('section_7_todos', {})
 if s7.get('enabled', True):
-    st.markdown('<div class="section-title">七、下月重点计划</div>', unsafe_allow_html=True)
-    
-    categories = s7.get('categories', [])
-    if categories:
-        for cat in categories:
-            priority_color = {'高': '#DC2626', '中': '#F59E0B', '低': '#6B7280'}.get(cat.get('priority', '中'), '#374151')
-            st.markdown(f"""
-            <div class="todo-card">
-                <div class="todo-title" style="color: {priority_color};">{cat.get('name', '-')}（{cat.get('priority', '中')}优先级）</div>
-                <div class="todo-item">{'<br>'.join(['• ' + item for item in cat.get('items', [])])}</div>
-            </div>
-            """, unsafe_allow_html=True)
+    with st.expander("七、下月重点计划", expanded=True):
+        categories = s7.get('categories', [])
+        if categories:
+            for cat in categories:
+                priority_color = {'高': '#DC2626', '中': '#F59E0B', '低': '#6B7280'}.get(cat.get('priority', '中'), '#374151')
+                st.markdown(f"""
+                <div class="todo-card">
+                    <div class="todo-title" style="color: {priority_color};">{cat.get('name', '-')}（{cat.get('priority', '中')}优先级）</div>
+                    <div class="todo-item">{'<br>'.join(['• ' + item for item in cat.get('items', [])])}</div>
+                </div>
+                """, unsafe_allow_html=True)
 
+# =============================================================================
 # 页脚
+# =============================================================================
 st.markdown("---")
-st.markdown(f'<div style="text-align: center; color: #9CA3AF; font-size: 11px;">创作者运营月报系统 v2.3.0 ｜ {datetime.now().strftime("%Y-%m-%d %H:%M")}</div>', unsafe_allow_html=True)
+st.markdown(f'<div style="text-align: center; color: #9CA3AF; font-size: 11px;">创作者运营月报系统 v2.4.0 ｜ {datetime.now().strftime("%Y-%m-%d %H:%M")}</div>', unsafe_allow_html=True)
+
+# =============================================================================
+# PDF 导出处理
+# =============================================================================
+if st.session_state.get('show_pdf'):
+    st.session_state.show_pdf = False
+    # 使用JavaScript打开打印对话框
+    st.markdown("""
+    <script>
+        window.print();
+    </script>
+    """, unsafe_allow_html=True)
