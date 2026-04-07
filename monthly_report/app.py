@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-小喇叭创作者运营月报系统 v2.4.0
-优化版：图表优化、表格改卡片、左侧导航、时间节点可视化
+小喇叭创作者运营月报系统 v1.2
+修复：折线图日期格式兼容问题
 """
 
 import streamlit as st
@@ -548,8 +548,11 @@ def create_line_chart(dates: List[str], values: List, title: str = "",
     """创建折线图（带时间节点标记）"""
     fig = go.Figure()
     
+    # 用数字索引作为 x 轴，避免日期格式兼容问题
+    x_indices = list(range(len(dates)))
+    
     fig.add_trace(go.Scatter(
-        x=dates,
+        x=x_indices,
         y=values,
         mode='lines+markers',
         name=y_label,
@@ -563,14 +566,16 @@ def create_line_chart(dates: List[str], values: List, title: str = "",
             event_date = event.get('date', '')
             event_name = event.get('name', '')
             if event_date in dates:
+                # 用索引位置定位，避免日期格式兼容问题
+                x_idx = dates.index(event_date)
                 fig.add_vline(
-                    x=event_date,
+                    x=x_idx,
                     line=dict(color='red', width=2, dash='dash'),
                     annotation=dict(text=event_name, textangle=0, font=dict(size=10))
                 )
     
     fig.update_yaxes(fixedrange=True)
-    fig.update_xaxes(fixedrange=True)
+    fig.update_xaxes(fixedrange=True, tickmode='array', tickvals=x_indices[::5], ticktext=dates[::5])
     fig.update_layout(
         title=title,
         margin=dict(l=20, r=20, t=40, b=20),
@@ -597,7 +602,7 @@ def create_dual_bar_chart(df: pd.DataFrame, title: str = ""):
             fig.add_trace(go.Bar(
                 x=df.index,
                 y=df[cols[1]],
-                name=cols[1]],
+                name=cols[1],
                 marker_color='#93C5FD'
             ))
     
@@ -1125,6 +1130,7 @@ if s3.get('enabled', True):
         # 爆款稿件Top10（卡片）
         videos = s3.get('viral_videos_top10', {})
         if videos.get('rows'):
+
             st.markdown(f'<div class="subsection-title">爆款稿件 Top 10（≥{s3.get("viral_threshold", 50000)//10000}万播放）</div>', unsafe_allow_html=True)
             for i, row in enumerate(videos['rows'][:5], 1):  # 展示Top5
                 render_video_card(row, row.get('rank', i))
@@ -1309,7 +1315,7 @@ if s7.get('enabled', True):
 # 页脚
 # =============================================================================
 st.markdown("---")
-st.markdown(f'<div style="text-align: center; color: #9CA3AF; font-size: 11px;">创作者运营月报系统 v2.4.0 ｜ {datetime.now().strftime("%Y-%m-%d %H:%M")}</div>', unsafe_allow_html=True)
+st.markdown(f'<div style="text-align: center; color: #9CA3AF; font-size: 11px;">创作者运营月报系统 v1.2 ｜ {datetime.now().strftime("%Y-%m-%d %H:%M")}</div>', unsafe_allow_html=True)
 
 # =============================================================================
 # PDF 导出处理
