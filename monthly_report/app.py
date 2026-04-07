@@ -548,11 +548,8 @@ def create_line_chart(dates: List[str], values: List, title: str = "",
     """创建折线图（带时间节点标记）"""
     fig = go.Figure()
     
-    # 用数字索引作为 x 轴，避免日期格式兼容问题
-    x_indices = list(range(len(dates)))
-    
     fig.add_trace(go.Scatter(
-        x=x_indices,
+        x=dates,
         y=values,
         mode='lines+markers',
         name=y_label,
@@ -566,16 +563,14 @@ def create_line_chart(dates: List[str], values: List, title: str = "",
             event_date = event.get('date', '')
             event_name = event.get('name', '')
             if event_date in dates:
-                # 用索引位置定位，避免日期格式兼容问题
-                x_idx = dates.index(event_date)
                 fig.add_vline(
-                    x=x_idx,
+                    x=event_date,
                     line=dict(color='red', width=2, dash='dash'),
                     annotation=dict(text=event_name, textangle=0, font=dict(size=10))
                 )
     
     fig.update_yaxes(fixedrange=True)
-    fig.update_xaxes(fixedrange=True, tickmode='array', tickvals=x_indices[::5], ticktext=dates[::5])
+    fig.update_xaxes(fixedrange=True)
     fig.update_layout(
         title=title,
         margin=dict(l=20, r=20, t=40, b=20),
@@ -585,6 +580,14 @@ def create_line_chart(dates: List[str], values: List, title: str = "",
         hovermode='x unified'
     )
     return fig
+
+def create_dual_bar_chart(df: pd.DataFrame, title: str = ""):
+    """创建双轴柱状图"""
+    fig = go.Figure()
+    
+    cols = df.columns.tolist()
+    if len(cols) >= 2:
+        fig.add_trace(go.Bar(
             x=df.index,
             y=df[cols[0]],
             name=cols[0],
@@ -594,7 +597,7 @@ def create_line_chart(dates: List[str], values: List, title: str = "",
             fig.add_trace(go.Bar(
                 x=df.index,
                 y=df[cols[1]],
-                name=cols[1],
+                name=cols[1]],
                 marker_color='#93C5FD'
             ))
     
