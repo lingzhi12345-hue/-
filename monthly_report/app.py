@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-小喇叭创作者运营月报系统 v2.5.0
-- 去掉登录和侧边栏
-- 顶部紧凑操作区
+小喇叭创作者运营月报系统 v2.6.0
+- 导出HTML功能
+- 条均播放降低 Top 10
+- 直播&核心作者KPI扩充
 - 表格改卡片
 - 作者卡片横向紧凑布局
-- 饼图并排展示
-- 导出HTML功能
 """
 
 import streamlit as st
@@ -20,6 +19,7 @@ import os
 import base64
 from datetime import datetime
 from typing import Dict, List, Optional
+from io import StringIO
 
 # =============================================================================
 # 1. 页面配置
@@ -658,6 +658,13 @@ EXAMPLE_DATA = {
                 {"rank": 2, "author_name": "小龙", "author_link": "https://v.douyin.com/example", "author_id": "YS1290177", "fans_display": "3,898", "platform": "抖音", "cur_avg_display": "29,228", "chg_display": "▲2421%"},
                 {"rank": 3, "author_name": "啊这", "author_link": "https://v.douyin.com/example", "author_id": "YS279479", "fans_display": "134,329", "platform": "抖音", "cur_avg_display": "432,026", "chg_display": "▲2165%"}
             ]
+        },
+        "avg_plays_down_top10": {
+            "rows": [
+                {"rank": 1, "author_name": "游戏达人小王", "author_link": "https://v.douyin.com/example", "author_id": "YS111222", "fans_display": "45,678", "platform": "抖音", "cur_avg_display": "3,256", "chg_display": "▼89.2%"},
+                {"rank": 2, "author_name": "极速玩家", "author_link": "https://v.douyin.com/example", "author_id": "YS333444", "fans_display": "23,456", "platform": "抖音", "cur_avg_display": "5,123", "chg_display": "▼76.5%"},
+                {"rank": 3, "author_name": "赛车手小李", "author_link": "https://v.douyin.com/example", "author_id": "YS555666", "fans_display": "12,345", "platform": "抖音", "cur_avg_display": "4,890", "chg_display": "▼68.3%"}
+            ]
         }
     },
     "section_4_activities": {
@@ -695,7 +702,7 @@ EXAMPLE_DATA = {
         "enabled": True,
         "data_source": "内容营销系统 - 直播数据",
         "insight_box": {
-            "insight": "2月直播场次稳定，场均ACU表现良好。",
+            "insight": "2月直播场次稳定，场均ACU表现良好。互动率和粉丝转化表现优异。",
             "risk": "头部主播集中度较高，需关注长尾主播培养。"
         },
         "kpi_cards": {
@@ -703,7 +710,11 @@ EXAMPLE_DATA = {
                 {"label": "累计开播场次", "value": 156, "value_display": "156"},
                 {"label": "累计开播人数", "value": 45, "value_display": "45"},
                 {"label": "累计看播人数", "value": 128000, "value_display": "12.8万"},
-                {"label": "场均ACU", "value": 856, "value_display": "856"}
+                {"label": "场均ACU", "value": 856, "value_display": "856"},
+                {"label": "累计直播时长", "value": 312, "value_display": "312小时", "note": "场均2小时"},
+                {"label": "场均互动数", "value": 2340, "value_display": "2,340", "note": "弹幕+点赞"},
+                {"label": "新增关注数", "value": 1890, "value_display": "1,890", "note": "粉丝转化率1.5%"},
+                {"label": "互动率", "value": 12.3, "value_display": "12.3%", "note": "互动/看播"}
             ]
         },
         "tier_distribution": {
@@ -731,14 +742,17 @@ EXAMPLE_DATA = {
         "enabled": True,
         "data_source": "用户提供核心作者名单 + 内容营销系统API",
         "insight_box": {
-            "insight": "核心作者贡献稳定，活跃率维持较高水平。",
+            "insight": "核心作者贡献稳定，活跃率维持较高水平。爆款贡献占比突出，是优质内容主力军。",
             "risk": "部分核心作者活跃度下降，需重点关注。"
         },
         "kpi_cards": {
             "items": [
                 {"label": "核心作者数", "value": 32, "value_display": "32"},
-                {"label": "贡献稿件数", "value": 1234, "value_display": "1,234"},
-                {"label": "累计播放量", "value": 56700000, "value_display": "5670万"}
+                {"label": "贡献稿件数", "value": 1234, "value_display": "1,234", "note": "占比5.1%"},
+                {"label": "累计播放量", "value": 56700000, "value_display": "5670万", "note": "占比23.1%"},
+                {"label": "爆款贡献数", "value": 89, "value_display": "89条", "note": "占总爆款11.5%"},
+                {"label": "平均留存月数", "value": 4.2, "value_display": "4.2月", "note": "连续活跃"},
+                {"label": "粉丝总增长", "value": 156000, "value_display": "+15.6万", "note": "环比+8.3%"}
             ]
         },
         "tier_distribution": {
@@ -776,7 +790,7 @@ EXAMPLE_DATA = {
 # =============================================================================
 # 8. 顶部操作区
 # =============================================================================
-col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
+col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
 
 with col_btn1:
     if st.button("📊 加载示例数据", use_container_width=True):
@@ -791,6 +805,11 @@ with col_btn2:
             st.success(f"已加载: {uploaded_file.name}")
         except Exception as e:
             st.error(f"解析错误: {e}")
+
+with col_btn3:
+    if st.session_state.report_data:
+        if st.button("📥 导出 HTML", use_container_width=True):
+            st.session_state.export_html = True
 
 # =============================================================================
 # 9. 主界面
@@ -987,6 +1006,13 @@ if s3.get('enabled', True):
         st.markdown('<div class="subsection-title">条均播放增长 Top 10</div>', unsafe_allow_html=True)
         for i, row in enumerate(avg_up['rows'][:10], 1):
             render_author_card_h(row, row.get('rank', i))
+    
+    # 条均播放降低Top10（新增）
+    avg_down = s3.get('avg_plays_down_top10', {})
+    if avg_down.get('rows'):
+        st.markdown('<div class="subsection-title">条均播放降低 Top 10</div>', unsafe_allow_html=True)
+        for i, row in enumerate(avg_down['rows'][:10], 1):
+            render_author_card_h(row, row.get('rank', i))
 
 # =============================================================================
 # 板块四：活动维度
@@ -1150,4 +1176,52 @@ if s7.get('enabled', True):
 # 页脚
 # =============================================================================
 st.markdown("---")
-st.markdown(f'<div style="text-align: center; color: #9CA3AF; font-size: 11px;">创作者运营月报系统 v2.5 ｜ {datetime.now().strftime("%Y-%m-%d %H:%M")}</div>', unsafe_allow_html=True)
+st.markdown(f'<div style="text-align: center; color: #9CA3AF; font-size: 11px;">创作者运营月报系统 v2.6 ｜ {datetime.now().strftime("%Y-%m-%d %H:%M")}</div>', unsafe_allow_html=True)
+
+# =============================================================================
+# 导出HTML处理
+# =============================================================================
+if st.session_state.get('export_html'):
+    st.session_state.export_html = False
+    
+    # 生成HTML内容
+    html_content = f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{safe_get(data, 'section_0_header.title', '月报')}</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background: #fff; }}
+        h1 {{ font-size: 24px; color: #1B4FD8; }}
+        .summary-box {{ background: rgba(27,79,216,0.1); border-radius: 8px; padding: 16px 20px; margin: 12px 0; border-left: 4px solid #1B4FD8; font-size: 13px; line-height: 1.8; }}
+        .section-title {{ font-size: 18px; font-weight: 700; color: #1B4FD8; margin: 20px 0 12px 0; padding-bottom: 8px; border-bottom: 2px solid #E8EFFF; }}
+        .insight-box {{ background: #F0F4FF; border-radius: 8px; padding: 14px 18px; margin: 12px 0; border-left: 4px solid #1B4FD8; font-size: 13px; line-height: 1.8; }}
+        .kpi-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0; }}
+        .kpi-card {{ background: #F5F8FF; border-radius: 10px; padding: 12px; border: 1px solid #E0E8FF; text-align: center; }}
+        .kpi-label {{ font-size: 11px; color: #6B7280; }}
+        .kpi-value {{ font-size: 20px; font-weight: 700; color: #1B4FD8; margin: 4px 0; }}
+        .kpi-sub {{ font-size: 10px; color: #6B7280; }}
+        .tier-card {{ background: #F9FAFB; border-radius: 6px; padding: 10px 14px; border: 1px solid #E5E7EB; margin: 4px 0; display: flex; align-items: center; gap: 16px; font-size: 12px; }}
+        .author-card-h {{ background: #F9FAFB; border-radius: 6px; padding: 8px 12px; border: 1px solid #E5E7EB; margin: 4px 0; display: flex; align-items: center; gap: 12px; font-size: 12px; }}
+        .video-card-h {{ background: #F9FAFB; border-radius: 6px; padding: 8px 12px; border: 1px solid #E5E7EB; margin: 4px 0; display: flex; align-items: center; gap: 12px; font-size: 12px; }}
+        .activity-card {{ background: #F5F8FF; border-radius: 8px; padding: 14px 18px; border: 1px solid #E0E8FF; margin: 8px 0; }}
+        .todo-card {{ background: #F5F8FF; border-radius: 8px; padding: 14px 18px; border: 1px solid #E0E8FF; margin: 8px 0; }}
+        a {{ color: #1B4FD8; text-decoration: none; }}
+        .up {{ color: #16A34A; font-weight: 600; }}
+        .down {{ color: #DC2626; font-weight: 600; }}
+    </style>
+</head>
+<body>
+    <h1>{safe_get(data, 'section_0_header.title', '月报标题')}</h1>
+    <div class="summary-box">{safe_get(data, 'section_0_header.summary', '')}</div>
+    <hr>
+    <p style="text-align:center;color:#9CA3AF;font-size:11px;">导出于 {datetime.now().strftime("%Y-%m-%d %H:%M")} ｜ 创作者运营月报系统 v2.6</p>
+</body>
+</html>"""
+    
+    # 生成下载链接
+    b64_html = base64.b64encode(html_content.encode('utf-8')).decode()
+    href = f'<a href="data:text/html;base64,{b64_html}" download="月报_{safe_get(data, "report_meta.month", "report")}.html">📥 点击下载 HTML 文件</a>'
+    st.markdown(href, unsafe_allow_html=True)
+    st.info("HTML文件已生成，点击上方链接下载")
