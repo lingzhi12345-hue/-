@@ -5,9 +5,7 @@ from plotly.subplots import make_subplots
 import numpy as np
 from datetime import datetime, timedelta
 import io
-import json
 import base64
-from pathlib import Path
 
 # ============================================================
 # 页面配置
@@ -35,6 +33,16 @@ st.markdown("""
         border-radius: 4px;
         margin: 16px 0 8px 0;
     }
+    .sub-title {
+        font-size: 16px;
+        font-weight: bold;
+        color: #ffffff;
+        background: linear-gradient(90deg, #1a1f2e, #2d3561);
+        padding: 8px 16px;
+        border-left: 4px solid #59a14f;
+        border-radius: 4px;
+        margin: 14px 0 10px 0;
+    }
     .kpi-card {
         background: #1a1f2e;
         border-radius: 10px;
@@ -46,19 +54,12 @@ st.markdown("""
     .kpi-value { font-size: 26px; font-weight: bold; color: #ffffff; }
     .kpi-delta-up { font-size: 13px; color: #48bb78; }
     .kpi-delta-down { font-size: 13px; color: #fc8181; }
-    .upload-box {
+    .upload-hint {
         background: #1a1f2e;
-        border: 1px dashed #4e79a7;
+        border: 1px solid #2d3561;
         border-radius: 8px;
         padding: 12px;
-        margin-bottom: 12px;
-    }
-    .config-box {
-        background: #1a1f2e;
-        border-radius: 8px;
-        padding: 14px;
-        margin-bottom: 12px;
-        border: 1px solid #2d3561;
+        margin-bottom: 16px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -90,39 +91,60 @@ def fmt_num(n, unit=""):
         return f"{n/1e4:.1f}万{unit}"
     return f"{n:.0f}{unit}"
 
-def delta_html(val, reverse=False):
-    """生成带颜色的涨跌幅 HTML"""
-    if pd.isna(val):
-        return "<span style='color:#a0aec0'>-</span>"
-    pct = val * 100
-    if (pct > 0 and not reverse) or (pct < 0 and reverse):
-        return f"<span style='color:#48bb78'>▲ {abs(pct):.1f}%</span>"
-    elif pct == 0:
-        return "<span style='color:#a0aec0'>— 0.0%</span>"
-    else:
-        return f"<span style='color:#fc8181'>▼ {abs(pct):.1f}%</span>"
-
 def safe_read_excel(file, sheet_name=None):
-    """安全读取Excel，返回DataFrame或None"""
+    """安全读取Excel，返回DataFrame或dict"""
     try:
         if sheet_name is not None:
-            result = pd.read_excel(file, sheet_name=sheet_name)
+            return pd.read_excel(file, sheet_name=sheet_name)
         else:
-            result = pd.read_excel(file, sheet_name=None)
-        return result
+            return pd.read_excel(file, sheet_name=None)
     except Exception as e:
         st.error(f"文件解析失败：{e}")
         return None
 
-def plotly_to_html(fig):
-    return fig.to_html(full_html=False, include_plotlyjs=False)
-
 def normalize_columns(df):
-    """安全处理列名：转换为字符串，处理空值"""
+    """安全处理列名"""
     if df is None:
         return df
     df.columns = [str(c).strip() if c is not None else "" for c in df.columns]
     return df
+
+def plotly_to_html(fig):
+    return fig.to_html(full_html=False, include_plotlyjs=False)
+
+def get_period_info(date, p1_start, p2_start):
+    """判断日期属于哪一期，并计算相对天数"""
+    # 定义窗口范围：开始前15天 到 结束后15天
+    p1_window_start = p1_start - timedelta(days=15)
+    p1_window_end = datetime(p1_start.year, p1_start.month + 1, 1) - timedelta(days=1) + timedelta(days=15)
+    
+    p2_window_start = p2_start - timedelta(days=15)
+    p2_window_end = datetime(p2_start.year, p2_start.month + 1, 1) - timedelta(days=1) + timedelta(days=15)
+    
+    if p1_window_start <= date <= p1_window_end:
+        delta = (date - p1_start).days
+        return "上期", delta
+    
+    if p2_window_start <= date <= p2_window_end:
+        delta = (date - p2_start).days
+        return "本期", delta
+    
+    return None, None
+
+def style_fig(fig, title, height=280):
+    """统一样式"""
+    fig.update_layout(
+        title=dict(text=title, font=dict(color="#a0aec0", size=14, family="PingFang SC")),
+        paper_bgcolor="#0e1117",
+        plot_bgcolor="#1a1f2e",
+        height=height,
+        font=dict(color="#ffffff", family="PingFang SC"),
+        legend=dict(font=dict(color="#a0aec0"), bgcolor="rgba(0,0,0,0)"),
+        xaxis=dict(color="#a0aec0", gridcolor="#2d3561", showgrid=True),
+        yaxis=dict(color="#a0aec0", gridcolor="#2d3561", showgrid=True),
+        margin=dict(l=10, r=10, t=40, b=10),
+        hovermode="x unified"
+    )
 
 # ============================================================
 # HTML 导出
@@ -145,6 +167,12 @@ body {{ background:#0e1117; color:#fff; font-family:'PingFang SC','Microsoft YaH
     padding:10px 20px; border-left:4px solid #4e79a7;
     border-radius:4px; margin:20px 0 10px 0;
 }}
+.sub-title {{
+    font-size:16px; font-weight:bold; color:#fff;
+    background:linear-gradient(90deg,#1a1f2e,#2d3561);
+    padding:8px 16px; border-left:4px solid #59a14f;
+    border-radius:4px; margin:14px 0 10px 0;
+}}
 .kpi-row {{ display:flex; gap:12px; flex-wrap:wrap; margin-bottom:14px; }}
 .kpi-card {{
     background:#1a1f2e; border-radius:10px; padding:16px 20px;
@@ -152,8 +180,6 @@ body {{ background:#0e1117; color:#fff; font-family:'PingFang SC','Microsoft YaH
 }}
 .kpi-label {{ font-size:13px; color:#a0aec0; margin-bottom:4px; }}
 .kpi-value {{ font-size:26px; font-weight:bold; color:#fff; }}
-.sub-title {{ font-size:15px; color:#a0aec0; padding:8px 0 4px 4px; }}
-.timeline-wrap {{ overflow-x:auto; }}
 </style>
 </head>
 <body>
@@ -169,70 +195,40 @@ def render_block1(html_collector):
     st.markdown('<div class="section-title">🎮 板块一：游戏 & 项目节点（Q2 时间轴）</div>',
                 unsafe_allow_html=True)
     html_collector.append('<div class="section-title">🎮 板块一：游戏 & 项目节点（Q2 时间轴）</div>')
-
-    with st.expander("📂 上传节点数据（Excel）", expanded=True):
-        st.markdown("""
-        **Excel 格式要求（单 Sheet）：**
-
-        | 节点类型 | 节点名称 | 日期 | 备注 |
-        |---------|---------|------|------|
-        | 游戏节点 | 某版本上线 | 2025-04-15 | 可选 |
-        | 项目节点 | 追光计划新一期 | 2025-05-01 | 可选 |
-        """)
-        uploaded = st.file_uploader("上传节点文件", type=["xlsx", "xls"], key="block1_upload")
-        if uploaded:
-            df = safe_read_excel(uploaded, sheet_name=0)
-            if df is not None:
-                # 检查返回类型，如果是dict则取第一个值
-                if isinstance(df, dict):
-                    df = list(df.values())[0] if df else None
-                if df is not None and isinstance(df, pd.DataFrame):
-                    df = normalize_columns(df)
-                    # 列名兼容映射
-                    col_map = {}
-                    for c in df.columns:
-                        if "类型" in str(c): col_map[c] = "节点类型"
-                        elif "名称" in str(c) or "名字" in str(c): col_map[c] = "节点名称"
-                        elif "日期" in str(c) or "时间" in str(c) or "date" in str(c).lower(): col_map[c] = "日期"
-                        elif "备注" in str(c) or "说明" in str(c): col_map[c] = "备注"
-                    df.rename(columns=col_map, inplace=True)
-                    if "日期" in df.columns:
-                        df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
-                    st.session_state.data_store["block1"] = df
-                    st.success(f"✅ 已加载 {len(df)} 条节点数据")
-
+    
     df = st.session_state.data_store.get("block1")
-    # 无数据时用示例
+    
+    # 无数据时用示例数据
     if df is None or df.empty:
         df = pd.DataFrame({
-            "节点类型": ["游戏节点","游戏节点","游戏节点","游戏节点",
-                        "项目节点","项目节点","项目节点"],
-            "节点名称": ["4.0版本上线","春日活动","5.0版本更新","六月赛季",
-                        "追光计划新一期","测试服招募","追光计划二期"],
+            "节点类型": ["游戏节点","游戏节点","游戏节点","游戏节点","游戏节点",
+                        "项目节点","项目节点","项目节点","项目节点"],
+            "节点名称": ["4.0版本上线","春日活动「花之旅」","5.0版本更新","端午限定活动","六月赛季更新",
+                        "追光计划新一期","测试服招募","追光计划二期","创作者激励活动"],
             "日期": [datetime(2025,4,5), datetime(2025,4,15),
-                    datetime(2025,5,1), datetime(2025,6,1),
+                    datetime(2025,5,1), datetime(2025,5,28),
+                    datetime(2025,6,15),
                     datetime(2025,4,10), datetime(2025,4,25),
-                    datetime(2025,5,20)],
-            "备注": ["","","","","","",""]
+                    datetime(2025,5,20), datetime(2025,6,1)],
+            "备注": ["新版本","限时活动","大版本","节日活动","赛季更新",
+                    "达人合作","玩家招募","二期启动","激励计划"]
         })
         st.info("ℹ️ 当前展示示例数据，上传文件后将自动替换")
-
+    
     # Q2 时间范围
     q2_start = datetime(TODAY.year, 4, 1)
     q2_end   = datetime(TODAY.year, 6, 30)
-
+    
     if "日期" in df.columns:
+        df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
         df = df[df["日期"].between(q2_start, q2_end)].copy()
-
+    
     game_nodes = df[df["节点类型"].str.contains("游戏", na=False)] if "节点类型" in df.columns else pd.DataFrame()
     proj_nodes = df[df["节点类型"].str.contains("项目", na=False)] if "节点类型" in df.columns else pd.DataFrame()
-
-    total_days = (q2_end - q2_start).days
-    today_offset = max(0, min((TODAY - q2_start).days, total_days))
-
+    
     fig = go.Figure()
-
-    # 先添加一个隐藏的trace，确保图表有数据范围
+    
+    # 隐藏的基准线
     fig.add_trace(go.Scatter(
         x=[q2_start, q2_end],
         y=[1, 1],
@@ -241,8 +237,8 @@ def render_block1(html_collector):
         showlegend=False,
         hoverinfo="skip"
     ))
-
-    # 游戏节点（上方，y=1）
+    
+    # 游戏节点（上方，y=1.2）
     if not game_nodes.empty:
         fig.add_trace(go.Scatter(
             x=game_nodes["日期"],
@@ -255,8 +251,8 @@ def render_block1(html_collector):
             name="游戏节点",
             hovertemplate="<b>%{text}</b><br>%{x|%Y-%m-%d}<extra></extra>"
         ))
-
-    # 项目节点（下方，y=0）
+    
+    # 项目节点（下方，y=0.8）
     if not proj_nodes.empty:
         fig.add_trace(go.Scatter(
             x=proj_nodes["日期"],
@@ -269,11 +265,11 @@ def render_block1(html_collector):
             name="项目节点",
             hovertemplate="<b>%{text}</b><br>%{x|%Y-%m-%d}<extra></extra>"
         ))
-
+    
     fig.update_layout(
         paper_bgcolor="#0e1117",
         plot_bgcolor="#1a1f2e",
-        height=260,
+        height=280,
         xaxis=dict(
             range=[q2_start, q2_end],
             tickformat="%m/%d",
@@ -282,68 +278,30 @@ def render_block1(html_collector):
             gridcolor="#2d3561",
             showgrid=True
         ),
-        yaxis=dict(
-            visible=False,
-            range=[0.4, 1.7]
-        ),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom", y=1.02,
-            font=dict(color="#a0aec0")
-        ),
+        yaxis=dict(visible=False, range=[0.4, 1.7]),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, font=dict(color="#a0aec0")),
         margin=dict(l=10, r=10, t=40, b=10),
         font=dict(color="#ffffff")
     )
-
-    # 今日竖线 - 使用 add_shape 替代 add_vline 避免空图表类型错误
+    
+    # 今日竖线
     today_str = TODAY.strftime("%Y-%m-%d")
-    fig.add_shape(
-        type="line",
-        x0=today_str, x1=today_str,
-        y0=0, y1=1,
-        yref="paper",
-        line_color="#f6c90e",
-        line_width=2,
-        line_dash="dash",
-    )
-    fig.add_annotation(
-        x=today_str,
-        y=1.02,
-        yref="paper",
-        text=f"今日 {TODAY.strftime('%m/%d')}",
-        showarrow=False,
-        font_color="#f6c90e",
-        font_size=11,
-    )
-
+    fig.add_shape(type="line", x0=today_str, x1=today_str, y0=0, y1=1, yref="paper",
+                  line_color="#f6c90e", line_dash="dash", line_width=2)
+    fig.add_annotation(x=today_str, y=1.02, yref="paper", text=f"今日 {TODAY.strftime('%m/%d')}",
+                       showarrow=False, font_color="#f6c90e", font_size=11)
+    
     st.plotly_chart(fig, use_container_width=True)
-    html_collector.append(f'<div class="timeline-wrap">{plotly_to_html(fig)}</div>')
+    html_collector.append(f'<div style="overflow-x:auto">{plotly_to_html(fig)}</div>')
 
 # ============================================================
 # ============ 板块二：抖音专区监测 ===========================
 # ============================================================
-
-# ---------- 字段映射（与已有代码保持一致） ----------
-FIELD_MAP = {
-    "播放量": ["播放量", "播放", "play_count", "视频播放量", "总播放量"],
-    "供给量": ["供给量", "供给", "supply_count", "视频供给", "投稿量", "投稿数"],
-    "专注作者播放": ["专注作者播放", "专注播放", "focus_play", "核心作者播放"],
-    "专注作者供给": ["专注作者供给", "专注供给", "focus_supply", "核心作者供给"],
-    "日期": ["日期", "date", "时间", "统计日期", "dt"],
-}
-
-def resolve_col(df_cols, field):
-    for alias in FIELD_MAP.get(field, [field]):
-        for c in df_cols:
-            if alias.lower() in c.lower() or c.lower() in alias.lower():
-                return c
-    return None
-
 def render_block2(html_collector):
     st.markdown('<div class="section-title">📺 板块二：抖音专区监测</div>',
                 unsafe_allow_html=True)
     html_collector.append('<div class="section-title">📺 板块二：抖音专区监测</div>')
-
+    
     # 专区日期配置
     with st.expander("⚙️ 专区期数配置", expanded=False):
         cfg = st.session_state.zone_config
@@ -364,85 +322,28 @@ def render_block2(html_collector):
                 "prev_end":      datetime.combine(prev_e, datetime.min.time()),
             }
             st.success("配置已保存")
-
-    with st.expander("📂 上传抖音专区数据（Excel）", expanded=True):
-        st.markdown("""
-        **Excel Sheet 说明：**
-        - Sheet `大盘数据`：日期、播放量、供给量、专注作者播放、专注作者供给
-        - Sheet `绿灯数据`（可选，与大盘同字段，系统自动按日期截取）
-        """)
-        uploaded = st.file_uploader("上传专区文件", type=["xlsx","xls"], key="block2_upload")
-        if uploaded:
-            sheets = safe_read_excel(uploaded)
-            if sheets is not None:
-                st.session_state.data_store["block2_raw"] = sheets
-                if isinstance(sheets, dict):
-                    st.success(f"✅ 已加载 Sheets: {list(sheets.keys())}")
-                else:
-                    st.success(f"✅ 已加载数据")
-
-    sheets = st.session_state.data_store.get("block2_raw")
-    df_main = _get_zone_df(sheets)
-    if df_main is None:
-        df_main = _gen_demo_zone_data()
+    
+    df = st.session_state.data_store.get("block2")
+    if df is None or df.empty:
+        df = _gen_demo_zone_data()
         st.info("ℹ️ 当前展示示例数据，上传文件后将自动替换")
-
-    _render_zone_overview(df_main, html_collector)
-    _render_zone_green(df_main, html_collector)
-
-def _get_zone_df(sheets):
-    if sheets is None:
-        return None
-    # 如果是单个DataFrame，直接使用
-    if isinstance(sheets, pd.DataFrame):
-        df = sheets.copy()
-    # 如果是dict，找大盘数据
-    elif isinstance(sheets, dict):
-        key = None
-        for k in sheets:
-            if "大盘" in str(k) or "main" in str(k).lower():
-                key = k
-                break
-        if key is None and sheets:
-            key = list(sheets.keys())[0]
-        if key is None:
-            return None
-        df = sheets[key].copy()
-    else:
-        return None
     
-    df = normalize_columns(df)
-    
-    # 日期列处理
-    date_col = resolve_col(df.columns, "日期")
-    if date_col and date_col != "日期":
-        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
-        df.rename(columns={date_col: "日期"}, inplace=True)
-    elif "日期" in df.columns:
-        df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
-    
-    # 确保关键列存在（不存在则创建空列）
-    for col in ["播放量", "供给量", "专注作者播放", "专注作者供给"]:
-        resolved = resolve_col(df.columns, col)
-        if resolved and resolved != col:
-            df.rename(columns={resolved: col}, inplace=True)
-        elif col not in df.columns:
-            df[col] = np.nan
-    
-    return df
+    _render_zone_overview(df, html_collector)
+    _render_zone_green(df, html_collector)
 
 def _gen_demo_zone_data():
+    """生成演示数据"""
     np.random.seed(42)
-    start = datetime(TODAY.year, 3, 1)
-    dates = [start + timedelta(days=i) for i in range(120)]
+    start = datetime(TODAY.year, 1, 1)
+    dates = [start + timedelta(days=i) for i in range(150)]
     base_play  = 5_000_000
     base_sup   = 800
-    trend = np.linspace(0, 0.3, 120)
-    noise_p = np.random.normal(0, 0.05, 120)
-    noise_s = np.random.normal(0, 0.03, 120)
-
+    trend = np.linspace(0, 0.3, 150)
+    noise_p = np.random.normal(0, 0.05, 150)
+    noise_s = np.random.normal(0, 0.03, 150)
+    
     # 绿灯加成模拟
-    green_boost = np.zeros(120)
+    green_boost = np.zeros(150)
     for i, d in enumerate(dates):
         cur_day = (d - datetime(TODAY.year, 4, 1)).days
         prev_day = (d - datetime(TODAY.year, 2, 1)).days
@@ -450,9 +351,10 @@ def _gen_demo_zone_data():
             green_boost[i] = 0.15 * (1 - cur_day/60)
         if 0 <= prev_day <= 28:
             green_boost[i] += 0.10
-
+    
     play   = (base_play  * (1 + trend + noise_p + green_boost)).astype(int)
     supply = (base_sup   * (1 + trend*0.5 + noise_s + green_boost*0.5)).astype(int)
+    
     return pd.DataFrame({
         "日期": dates,
         "播放量": play,
@@ -462,155 +364,162 @@ def _gen_demo_zone_data():
     })
 
 def _render_zone_overview(df, html_collector):
+    """子版块1：抖音专区大盘（近90天）"""
     st.markdown('<div class="sub-title">📊 子版块1 — 抖音专区大盘（近90天）</div>',
                 unsafe_allow_html=True)
+    html_collector.append('<div class="sub-title">📊 子版块1 — 抖音专区大盘（近90天）</div>')
     
-    # 安全检查
     if "日期" not in df.columns:
         st.warning("⚠️ 数据缺少日期列")
         return
-
-    q2_start = datetime(TODAY.year, 3, 1)
-    q2_end   = datetime(TODAY.year, 6, 30)
-    mask = (df["日期"] >= q2_start) & (df["日期"] <= q2_end)
+    
+    # 近90天范围
+    range_start = TODAY - timedelta(days=90)
+    range_end = TODAY
+    mask = (df["日期"] >= range_start) & (df["日期"] <= range_end)
     dff = df[mask].sort_values("日期").copy()
-
-    play_col   = "播放量" if "播放量" in df.columns else None
-    supply_col = "供给量" if "供给量" in df.columns else None
-    fp_col     = "专注作者播放" if "专注作者播放" in df.columns else None
-    fs_col     = "专注作者供给" if "专注作者供给" in df.columns else None
-
+    
     # 播放趋势图
     fig_play = go.Figure()
-    if play_col:
+    if "播放量" in df.columns:
         fig_play.add_trace(go.Scatter(
-            x=dff["日期"], y=dff[play_col],
+            x=dff["日期"], y=dff["播放量"],
             name="总播放量", line=dict(color="#4e79a7", width=2),
             fill="tozeroy", fillcolor="rgba(78,121,167,0.15)"
         ))
-    if fp_col:
+    if "专注作者播放" in df.columns:
         fig_play.add_trace(go.Scatter(
-            x=dff["日期"], y=dff[fp_col],
+            x=dff["日期"], y=dff["专注作者播放"],
             name="专注作者播放", line=dict(color="#59a14f", width=2, dash="dot")
         ))
-    _style_fig(fig_play, "播放量趋势（3-6月）", height=240)
+    style_fig(fig_play, "播放量趋势")
     st.plotly_chart(fig_play, use_container_width=True)
     html_collector.append(plotly_to_html(fig_play))
-
+    
     # 供给趋势图
     fig_sup = go.Figure()
-    if supply_col:
+    if "供给量" in df.columns:
         fig_sup.add_trace(go.Scatter(
-            x=dff["日期"], y=dff[supply_col],
+            x=dff["日期"], y=dff["供给量"],
             name="总供给量", line=dict(color="#e05c5c", width=2),
             fill="tozeroy", fillcolor="rgba(224,92,92,0.15)"
         ))
-    if fs_col:
+    if "专注作者供给" in df.columns:
         fig_sup.add_trace(go.Scatter(
-            x=dff["日期"], y=dff[fs_col],
+            x=dff["日期"], y=dff["专注作者供给"],
             name="专注作者供给", line=dict(color="#f28e2b", width=2, dash="dot")
         ))
-    _style_fig(fig_sup, "供给量趋势（3-6月）", height=240)
+    style_fig(fig_sup, "供给量趋势")
     st.plotly_chart(fig_sup, use_container_width=True)
     html_collector.append(plotly_to_html(fig_sup))
 
 def _render_zone_green(df, html_collector):
+    """子版块2：绿灯专区环比（参考用户代码逻辑）"""
     st.markdown('<div class="sub-title">🟢 子版块2 — 绿灯专区环比</div>',
                 unsafe_allow_html=True)
-
+    html_collector.append('<div class="sub-title">🟢 子版块2 — 绿灯专区环比</div>')
+    
     cfg = st.session_state.zone_config
-    cur_s  = cfg["current_start"]
-    prev_s = cfg["prev_start"]
-
-    # 构建"相对天数"数据（前10天 + 当天 + 后30天 = 41点）
-    def build_relative(start_dt, label):
-        rows = []
-        play_col = "播放量" if "播放量" in df.columns else None
-        supply_col = "供给量" if "供给量" in df.columns else None
-        for offset in range(-10, 31):
-            d = start_dt + timedelta(days=offset)
-            row = df[df["日期"] == d]
-            if not row.empty:
-                play_val = row[play_col].values[0] if play_col in row.columns else np.nan
-                supply_val = row[supply_col].values[0] if supply_col in row.columns else np.nan
-                rows.append({
-                    "offset": offset,
-                    "label": label,
-                    "播放量": play_val,
-                    "供给量": supply_val,
-                })
+    p1_start = cfg["prev_start"]   # 上期开始
+    p2_start = cfg["current_start"] # 本期开始
+    
+    # 计算期数和相对天数
+    if "日期" in df.columns:
+        df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
+        df[["期数", "相对天数"]] = df["日期"].apply(
+            lambda x: pd.Series(get_period_info(x, p1_start, p2_start))
+        )
+        
+        df_analysis = df.dropna(subset=["期数", "相对天数"]).copy()
+        df_analysis["相对天数"] = df_analysis["相对天数"].astype(int)
+        
+        # 按天聚合
+        df_grouped = df_analysis.groupby(["期数", "相对天数"])[["播放量", "供给量"]].sum().reset_index()
+        
+        # 计算增幅（相对于 Day 0）
+        def calc_growth(group, col):
+            day0_val = group.loc[group["相对天数"] == 0, col].values
+            if len(day0_val) > 0 and day0_val[0] != 0:
+                base_val = day0_val[0]
+                group[f"{col}_增幅"] = (group[col] - base_val) / base_val
             else:
-                rows.append({"offset": offset, "label": label,
-                             "播放量": np.nan, "供给量": np.nan})
-        return pd.DataFrame(rows)
-
-    df_cur  = build_relative(cur_s,  "本期绿灯")
-    df_prev = build_relative(prev_s, "上期绿灯")
-
-    x_ticks = list(range(-10, 31))
-    x_labels = [str(x) if x != 0 else "开始当天" for x in x_ticks]
-
-    # ------ 播放量环比 ------
-    st.markdown("**🎬 播放量环比**")
-    fig_gplay = go.Figure()
-    fig_gplay.add_trace(go.Scatter(
-        x=df_cur["offset"], y=df_cur["播放量"],
-        name="本期绿灯", mode="lines+markers",
-        line=dict(color="#4e79a7", width=2),
-        marker=dict(size=6)
-    ))
-    fig_gplay.add_trace(go.Scatter(
-        x=df_prev["offset"], y=df_prev["播放量"],
-        name="上期绿灯", mode="lines+markers",
-        line=dict(color="#e05c5c", width=2, dash="dash"),
-        marker=dict(size=6, symbol="square")
-    ))
-    fig_gplay.add_shape(type="line", x0=0, x1=0, y0=0, y1=1, yref="paper",
-                        line_color="#f6c90e", line_dash="dash", line_width=2)
-    fig_gplay.add_annotation(x=0, y=1.02, yref="paper", text="专区开始",
-                            showarrow=False, font_color="#f6c90e", font_size=11)
-    _style_fig(fig_gplay, "播放量 — 专区前10天至后30天", height=260)
-    fig_gplay.update_xaxes(tickvals=x_ticks[::5], ticktext=x_labels[::5])
-    st.plotly_chart(fig_gplay, use_container_width=True)
-    html_collector.append(plotly_to_html(fig_gplay))
-
-    # ------ 供给量环比 ------
-    st.markdown("**📝 供给量环比**")
-    fig_gsup = go.Figure()
-    fig_gsup.add_trace(go.Scatter(
-        x=df_cur["offset"], y=df_cur["供给量"],
-        name="本期绿灯", mode="lines+markers",
-        line=dict(color="#59a14f", width=2),
-        marker=dict(size=6, symbol="circle")
-    ))
-    fig_gsup.add_trace(go.Scatter(
-        x=df_prev["offset"], y=df_prev["供给量"],
-        name="上期绿灯", mode="lines+markers",
-        line=dict(color="#f28e2b", width=2, dash="dot"),
-        marker=dict(size=7, symbol="triangle-up")
-    ))
-    fig_gsup.add_shape(type="line", x0=0, x1=0, y0=0, y1=1, yref="paper",
-                       line_color="#f6c90e", line_dash="dash", line_width=2)
-    fig_gsup.add_annotation(x=0, y=1.02, yref="paper", text="专区开始",
-                           showarrow=False, font_color="#f6c90e", font_size=11)
-    _style_fig(fig_gsup, "供给量 — 专区前10天至后30天", height=260)
-    fig_gsup.update_xaxes(tickvals=x_ticks[::5], ticktext=x_labels[::5])
-    st.plotly_chart(fig_gsup, use_container_width=True)
-    html_collector.append(plotly_to_html(fig_gsup))
-
-def _style_fig(fig, title, height=300):
-    fig.update_layout(
-        title=dict(text=title, font=dict(color="#a0aec0", size=13)),
-        paper_bgcolor="#0e1117",
-        plot_bgcolor="#1a1f2e",
-        height=height,
-        font=dict(color="#ffffff"),
-        legend=dict(font=dict(color="#a0aec0"), bgcolor="rgba(0,0,0,0)"),
-        xaxis=dict(color="#a0aec0", gridcolor="#2d3561", showgrid=True),
-        yaxis=dict(color="#a0aec0", gridcolor="#2d3561", showgrid=True),
-        margin=dict(l=10, r=10, t=36, b=10),
-        hovermode="x unified"
-    )
+                group[f"{col}_增幅"] = 0
+            return group
+        
+        df_final = pd.DataFrame()
+        for period in df_grouped["期数"].unique():
+            period_data = df_grouped[df_grouped["期数"] == period].copy()
+            period_data = calc_growth(period_data, "播放量")
+            period_data = calc_growth(period_data, "供给量")
+            df_final = pd.concat([df_final, period_data])
+        
+        if df_final.empty:
+            st.warning("⚠️ 当前数据范围不在专区期间内，无法展示环比")
+            return
+    else:
+        st.warning("⚠️ 数据缺少日期列")
+        return
+    
+    # 绘制4个图表
+    def plot_green_chart(data, y_col, title, is_percentage=False):
+        fig = go.Figure()
+        styles = {
+            "上期": {"dash": "solid", "color": "#1f77b4"},
+            "本期": {"dash": "dash", "color": "#ff7f0e"}
+        }
+        for period_name in ["上期", "本期"]:
+            subset = data[data["期数"] == period_name]
+            if not subset.empty:
+                fig.add_trace(go.Scatter(
+                    x=subset["相对天数"],
+                    y=subset[y_col],
+                    mode="lines+markers",
+                    name=period_name,
+                    line=dict(color=styles[period_name]["color"], dash=styles[period_name]["dash"]),
+                    marker=dict(size=6)
+                ))
+        
+        # 添加 Day 0 参考线
+        fig.add_shape(type="line", x0=0, x1=0, y0=0, y1=1, yref="paper",
+                      line_color="#f6c90e", line_dash="dash", line_width=2)
+        
+        fig.update_layout(
+            title=dict(text=title, font=dict(color="#a0aec0", size=14)),
+            xaxis_title="相对天数 (Day 0 = 绿灯专区开始日期)",
+            yaxis_title=title.split("对比")[0],
+            hovermode="x unified",
+            paper_bgcolor="#0e1117",
+            plot_bgcolor="#1a1f2e",
+            height=260,
+            font=dict(color="#ffffff"),
+            legend=dict(font=dict(color="#a0aec0")),
+            xaxis=dict(color="#a0aec0", gridcolor="#2d3561", showgrid=True),
+            yaxis=dict(color="#a0aec0", gridcolor="#2d3561", showgrid=True),
+            margin=dict(l=10, r=10, t=40, b=10)
+        )
+        if is_percentage:
+            fig.update_layout(yaxis_tickformat=".1%")
+        return fig
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        fig1 = plot_green_chart(df_final, "播放量", "播放量趋势对比")
+        st.plotly_chart(fig1, use_container_width=True)
+        html_collector.append(plotly_to_html(fig1))
+        
+        fig2 = plot_green_chart(df_final, "播放量_增幅", "播放量增幅对比", is_percentage=True)
+        st.plotly_chart(fig2, use_container_width=True)
+        html_collector.append(plotly_to_html(fig2))
+    
+    with col2:
+        fig3 = plot_green_chart(df_final, "供给量", "供给量趋势对比")
+        st.plotly_chart(fig3, use_container_width=True)
+        html_collector.append(plotly_to_html(fig3))
+        
+        fig4 = plot_green_chart(df_final, "供给量_增幅", "供给量增幅对比", is_percentage=True)
+        st.plotly_chart(fig4, use_container_width=True)
+        html_collector.append(plotly_to_html(fig4))
 
 # ============================================================
 # ============ 板块三：达人投放 ================================
@@ -619,47 +528,18 @@ def render_block3(html_collector):
     st.markdown('<div class="section-title">💰 板块三：达人投放</div>',
                 unsafe_allow_html=True)
     html_collector.append('<div class="section-title">💰 板块三：达人投放</div>')
-
-    with st.expander("📂 上传达人投放数据（Excel）", expanded=True):
-        st.markdown("""
-        **Excel 字段说明（单 Sheet）：**
-
-        | 字段 | 说明 |
-        |------|------|
-        | 平台 | 抖音 / B站 / 微博 等 |
-        | 日期 | 发布日期 |
-        | 一级单元 | 预算所属单元 |
-        | 消耗金额 | 实际结算金额 |
-        | 确认合作 | 是/否 |
-        | 播放量 | 稿件播放量 |
-        | 内容类型 | 剧情 / 测评 / 混剪 等 |
-        | 是否爆款 | 是/否 |
-        | 合作ID | 唯一标识（可选） |
-        """)
-        uploaded = st.file_uploader("上传投放文件", type=["xlsx","xls"], key="block3_upload")
-        if uploaded:
-            df = safe_read_excel(uploaded, sheet_name=0)
-            if df is not None:
-                # 检查返回类型
-                if isinstance(df, dict):
-                    df = list(df.values())[0] if df else None
-                if df is not None and isinstance(df, pd.DataFrame):
-                    df = normalize_columns(df)
-                    if "日期" in df.columns:
-                        df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
-                    st.session_state.data_store["block3"] = df
-                    st.success(f"✅ 已加载 {len(df)} 条投放数据")
-
+    
     df = st.session_state.data_store.get("block3")
     if df is None or df.empty:
         df = _gen_demo_influencer()
         st.info("ℹ️ 当前展示示例数据，上传文件后将自动替换")
-
+    
     col1, col2 = st.columns(2)
-
-    # ---- Q2分平台消耗 & 播放 ----
+    
+    # ---- 分平台消耗 & 播放 ----
     with col1:
-        st.markdown("**📊 分平台消耗金额 & 播放量**")
+        st.markdown('<div class="sub-title">📊 分平台消耗金额 & 播放量</div>',
+                    unsafe_allow_html=True)
         if "平台" in df.columns:
             agg_dict = {}
             if "消耗金额" in df.columns:
@@ -670,6 +550,7 @@ def render_block3(html_collector):
                 grp = pd.DataFrame({"平台": df["平台"].unique()})
             else:
                 grp = df.groupby("平台").agg(**agg_dict).reset_index()
+            
             fig_plat = make_subplots(specs=[[{"secondary_y": True}]])
             if "消耗金额" in grp.columns:
                 fig_plat.add_trace(go.Bar(
@@ -682,44 +563,47 @@ def render_block3(html_collector):
                     name="播放量", mode="lines+markers",
                     line=dict(color="#f28e2b", width=2)
                 ), secondary_y=True)
-            fig_plat.update_layout(
-                paper_bgcolor="#0e1117", plot_bgcolor="#1a1f2e",
-                height=260, font=dict(color="#fff"),
-                legend=dict(font=dict(color="#a0aec0"), bgcolor="rgba(0,0,0,0)"),
-                margin=dict(l=10,r=10,t=30,b=10)
-            )
+            style_fig(fig_plat, "")
             st.plotly_chart(fig_plat, use_container_width=True)
             html_collector.append(plotly_to_html(fig_plat))
-
-    # ---- 一级单元预算消耗 ----
+    
+    # ---- 需求预算消耗（一级单元改为需求编号）----
     with col2:
-        st.markdown("**💼 各一级单元预算消耗**")
-        if "一级单元" in df.columns and "消耗金额" in df.columns:
-            # 结算 + 确认合作
+        st.markdown('<div class="sub-title">💼 各需求预算消耗</div>',
+                    unsafe_allow_html=True)
+        if "需求编号" in df.columns and "消耗金额" in df.columns:
             confirmed = df[df.get("确认合作", pd.Series(["是"]*len(df))) == "是"] if "确认合作" in df.columns else df
-            grp2 = confirmed.groupby("一级单元")["消耗金额"].sum().reset_index()
+            grp2 = confirmed.groupby(["需求编号", "需求名称"], as_index=False)["消耗金额"].sum()
             grp2 = grp2.sort_values("消耗金额", ascending=True)
-            fig_unit = go.Figure(go.Bar(
-                x=grp2["消耗金额"], y=grp2["一级单元"],
+            
+            # 横向柱状图，显示需求名称
+            fig_unit = go.Figure()
+            fig_unit.add_trace(go.Bar(
+                x=grp2["消耗金额"],
+                y=grp2.apply(lambda r: f"{r['需求编号']} {r['需求名称'][:20]}..." if len(str(r['需求名称'])) > 20 else f"{r['需求编号']} {r['需求名称']}", axis=1),
                 orientation="h",
-                marker=dict(color="#59a14f")
+                marker=dict(color="#59a14f"),
+                text=grp2["消耗金额"].apply(lambda x: fmt_num(x, "元")),
+                textposition="outside",
+                textfont=dict(color="#a0aec0", size=10)
             ))
-            _style_fig(fig_unit, "一级单元消耗（确认合作）", height=260)
+            style_fig(fig_unit, "")
+            fig_unit.update_layout(yaxis=dict(tickfont=dict(size=10)))
             st.plotly_chart(fig_unit, use_container_width=True)
             html_collector.append(plotly_to_html(fig_unit))
-
+    
     # ---- 时间轴：发布条数 & 爆款条数 ----
-    st.markdown("**📅 每日发布条数 & 爆款条数**")
+    st.markdown('<div class="sub-title">📅 每日发布条数 & 爆款条数</div>',
+                unsafe_allow_html=True)
     if "日期" in df.columns:
-        daily = df.groupby("日期").agg(
-            发布条数=("日期","count"),
-        ).reset_index()
+        df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
+        daily = df.groupby("日期").agg(发布条数=("日期", "count")).reset_index()
         if "是否爆款" in df.columns:
             boom = df[df["是否爆款"]=="是"].groupby("日期").size().reset_index(name="爆款条数")
             daily = daily.merge(boom, on="日期", how="left").fillna(0)
         else:
             daily["爆款条数"] = 0
-
+        
         fig_daily = go.Figure()
         fig_daily.add_trace(go.Bar(
             x=daily["日期"], y=daily["发布条数"],
@@ -730,13 +614,14 @@ def render_block3(html_collector):
             name="爆款条数", mode="lines+markers",
             line=dict(color="#f6c90e", width=2)
         ))
-        _style_fig(fig_daily, "每日发布 & 爆款", height=220)
+        style_fig(fig_daily, "每日发布 & 爆款")
         st.plotly_chart(fig_daily, use_container_width=True)
         html_collector.append(plotly_to_html(fig_daily))
-
+    
     # ---- 内容类型效果 ----
     if "内容类型" in df.columns:
-        st.markdown("**🎯 内容类型 × 数据效果**")
+        st.markdown('<div class="sub-title">🎯 内容类型 × 数据效果</div>',
+                    unsafe_allow_html=True)
         agg_dict2 = {"发布条数": ("内容类型", "count")}
         if "播放量" in df.columns:
             agg_dict2["播放量"] = ("播放量", "sum")
@@ -748,9 +633,8 @@ def render_block3(html_collector):
                 lambda r: r["消耗金额"]/r["播放量"]*1000 if r["播放量"]>0 else 0, axis=1)
         else:
             type_grp["CPM"] = 0
-
-        fig_type = make_subplots(rows=1, cols=3,
-            subplot_titles=["发布条数","播放量","CPM"])
+        
+        fig_type = make_subplots(rows=1, cols=3, subplot_titles=["发布条数","播放量","CPM"])
         colors = ["#4e79a7","#e05c5c","#59a14f","#f28e2b","#b07aa1","#76b7b2"]
         clr = [colors[i % len(colors)] for i in range(len(type_grp))]
         if "发布条数" in type_grp.columns:
@@ -769,23 +653,22 @@ def render_block3(html_collector):
         )
         st.plotly_chart(fig_type, use_container_width=True)
         html_collector.append(plotly_to_html(fig_type))
-
+    
     # ---- CPM 异常值 ----
-    st.markdown("**⚠️ 累计 CPM & 异常值合作**")
+    st.markdown('<div class="sub-title">⚠️ 累计 CPM & 异常值合作</div>',
+                unsafe_allow_html=True)
     total_play = df["播放量"].sum() if "播放量" in df.columns else 0
     total_cost = df["消耗金额"].sum() if "消耗金额" in df.columns else 0
     total_cpm  = total_cost / total_play * 1000 if total_play > 0 else 0
-
-    play_col_3 = "播放量" if "播放量" in df.columns else None
-    cost_col_3 = "消耗金额" if "消耗金额" in df.columns else None
-    if play_col_3 and cost_col_3:
+    
+    if "播放量" in df.columns and "消耗金额" in df.columns:
         df["CPM_item"] = df.apply(
-            lambda r: r[cost_col_3]/r[play_col_3]*1000 if r[play_col_3]>0 else 0, axis=1)
+            lambda r: r["消耗金额"]/r["播放量"]*1000 if r["播放量"]>0 else 0, axis=1)
     else:
         df["CPM_item"] = 0
     top3_high = df.nlargest(3, "CPM_item")
     top3_low  = df.nsmallest(3, "CPM_item")
-
+    
     c1, c2, c3 = st.columns([1,2,2])
     with c1:
         st.markdown(f"""
@@ -794,7 +677,7 @@ def render_block3(html_collector):
         <div class="kpi-value">{total_cpm:.1f}</div>
         <div class="kpi-label">元/千次播放</div>
         </div>""", unsafe_allow_html=True)
-
+    
     with c2:
         st.markdown("🔴 **拉高 CPM Top3**")
         id_col = "合作ID" if "合作ID" in df.columns else df.columns[0]
@@ -803,7 +686,7 @@ def render_block3(html_collector):
                 f"- `{row.get(id_col,'-')}` — CPM: **{row['CPM_item']:.1f}** "
                 f"（消耗: {fmt_num(row.get('消耗金额',0),'元')} / "
                 f"播放: {fmt_num(row.get('播放量',0))}）")
-
+    
     with c3:
         st.markdown("🟢 **拉低 CPM Top3**")
         for _, row in top3_low.iterrows():
@@ -811,25 +694,36 @@ def render_block3(html_collector):
                 f"- `{row.get(id_col,'-')}` — CPM: **{row['CPM_item']:.1f}** "
                 f"（消耗: {fmt_num(row.get('消耗金额',0),'元')} / "
                 f"播放: {fmt_num(row.get('播放量',0))}）")
-
+    
     html_collector.append(f"""
     <div style="background:#1a1f2e;border-radius:8px;padding:14px;margin:10px 0;">
     <div style="font-size:15px;color:#a0aec0;margin-bottom:8px;">累计 CPM: <b style="color:#fff">{total_cpm:.1f}</b> 元/千次播放</div>
     </div>""")
 
 def _gen_demo_influencer():
+    """生成演示数据"""
     np.random.seed(7)
     platforms = ["抖音","B站","微博","小红书"]
-    units = ["品牌部","市场部","运营部","用户增长"]
+    demands = [
+        ("292435", "阴阳师2026年4月版本传播推广整合营销比选需求"),
+        ("295678", "光遇春日活动达人合作需求"),
+        ("301234", "巅峰极速新赛季推广需求"),
+        ("304567", "萤火突击版本更新传播需求"),
+        ("298901", "全平台创作者激励计划"),
+    ]
     ctypes = ["剧情","测评","混剪","挑战赛","开箱"]
     n = 80
     dates = [datetime(TODAY.year, 4, 1) + timedelta(days=np.random.randint(0,90)) for _ in range(n)]
     costs = np.random.uniform(5000, 200000, n)
     plays = costs * np.random.uniform(5, 150, n)
+    
+    demand_choices = [demands[np.random.randint(0, len(demands))] for _ in range(n)]
+    
     return pd.DataFrame({
         "日期": dates,
         "平台": np.random.choice(platforms, n),
-        "一级单元": np.random.choice(units, n),
+        "需求编号": [d[0] for d in demand_choices],
+        "需求名称": [d[1] for d in demand_choices],
         "内容类型": np.random.choice(ctypes, n),
         "消耗金额": costs.round(0),
         "播放量": plays.round(0).astype(int),
@@ -845,38 +739,21 @@ def render_block4(html_collector):
     st.markdown('<div class="section-title">📣 板块四：小喇叭 KPI 看板</div>',
                 unsafe_allow_html=True)
     html_collector.append('<div class="section-title">📣 板块四：小喇叭 KPI 看板</div>')
-
-    with st.expander("📂 上传小喇叭数据（Excel）", expanded=True):
-        st.markdown("""
-        **Excel Sheet 说明：**
-        - Sheet `视频数据`：日期、主话题播放量日增、累计播放、累计投稿数、粉丝分层、人均投稿数、稿均播放
-        - Sheet `直播数据`：日期、累计看播数、累计开播数、ACU分层、人均开播场次、场均ACU
-
-        *上一周期数据可放在同 Sheet 中加 `_上期` 后缀列，或由 Agent 处理后写入*
-        """)
-        uploaded = st.file_uploader("上传小喇叭文件", type=["xlsx","xls"], key="block4_upload")
-        if uploaded:
-            sheets = safe_read_excel(uploaded)
-            if sheets is not None:
-                st.session_state.data_store["block4_raw"] = sheets
-                if isinstance(sheets, dict):
-                    st.success(f"✅ 已加载 Sheets: {list(sheets.keys())}")
-                else:
-                    st.success(f"✅ 已加载数据")
-
-    sheets = st.session_state.data_store.get("block4_raw")
-    vdata, ldata = _get_horn_df(sheets)
+    
+    vdata = st.session_state.data_store.get("block4_video")
+    ldata = st.session_state.data_store.get("block4_live")
+    
     if vdata is None:
         vdata, ldata = _gen_demo_horn()
         st.info("ℹ️ 当前展示示例数据，上传文件后将自动替换")
-
+    
     # ---------- 视频板块 ----------
-    st.markdown("### 🎬 视频板块")
+    st.markdown('<div class="sub-title">🎬 视频板块</div>',
+                unsafe_allow_html=True)
     html_collector.append('<div class="sub-title">🎬 视频板块</div>')
-
-    # 主话题播放量日增趋势
+    
     if "日期" in vdata.columns and "主话题播放日增" in vdata.columns:
-        st.markdown("**主话题播放量日增走势**")
+        vdata["日期"] = pd.to_datetime(vdata["日期"], errors="coerce")
         fig_vid = go.Figure()
         fig_vid.add_trace(go.Scatter(
             x=vdata["日期"], y=vdata["主话题播放日增"],
@@ -884,90 +761,55 @@ def render_block4(html_collector):
             line=dict(color="#4e79a7", width=2),
             fill="tozeroy", fillcolor="rgba(78,121,167,0.15)"
         ))
-        _style_fig(fig_vid, "主话题播放量日增（Q2）", height=220)
+        style_fig(fig_vid, "主话题播放量日增")
         st.plotly_chart(fig_vid, use_container_width=True)
         html_collector.append(plotly_to_html(fig_vid))
-
+    
     # KPI 卡片 - 视频
     v_kpis = [
         ("累计播放", "累计播放", "累计播放_上期"),
         ("累计投稿数", "累计投稿数", "累计投稿数_上期"),
     ]
     vcols = st.columns(len(v_kpis))
-    kpi_html_parts = []
     for i, (label, cur_col, prev_col) in enumerate(v_kpis):
         cur_val  = vdata[cur_col].iloc[-1]  if cur_col  in vdata.columns else None
         prev_val = vdata[prev_col].iloc[-1] if prev_col in vdata.columns else None
         delta    = (cur_val - prev_val) / prev_val if (cur_val and prev_val and prev_val!=0) else None
         with vcols[i]:
             _kpi_card(label, cur_val, delta)
-        kpi_html_parts.append(_kpi_card_html(label, cur_val, delta))
-    html_collector.append(f'<div class="kpi-row">{"".join(kpi_html_parts)}</div>')
-
+    
     # 粉丝分层
     if "粉丝分层" in vdata.columns:
         st.markdown("**不同粉丝分层指标**")
-        fig_fan = make_subplots(rows=1, cols=2,
-            subplot_titles=["人均投稿数","稿均播放数"])
-        colors = ["#4e79a7","#e05c5c","#59a14f","#f28e2b","#b07aa1"]
         layers = vdata.drop_duplicates("粉丝分层")
+        fig_fan = make_subplots(rows=1, cols=2, subplot_titles=["人均投稿数","稿均播放数"])
+        colors = ["#4e79a7","#e05c5c","#59a14f","#f28e2b","#b07aa1"]
         if "人均投稿数" in layers.columns:
-            clr = [colors[i%len(colors)] for i in range(len(layers))]
             fig_fan.add_trace(go.Bar(x=layers["粉丝分层"],y=layers["人均投稿数"],
-                marker_color=clr, showlegend=False), row=1,col=1)
+                marker_color=[colors[i%len(colors)] for i in range(len(layers))], showlegend=False), row=1,col=1)
         if "稿均播放数" in layers.columns:
-            clr = [colors[i%len(colors)] for i in range(len(layers))]
             fig_fan.add_trace(go.Bar(x=layers["粉丝分层"],y=layers["稿均播放数"],
-                marker_color=clr, showlegend=False), row=1,col=2)
-        fig_fan.update_layout(
-            paper_bgcolor="#0e1117", plot_bgcolor="#1a1f2e",
-            height=220, font=dict(color="#a0aec0"),
-            margin=dict(l=10,r=10,t=36,b=10)
-        )
+                marker_color=[colors[i%len(colors)] for i in range(len(layers))], showlegend=False), row=1,col=2)
+        fig_fan.update_layout(paper_bgcolor="#0e1117", plot_bgcolor="#1a1f2e",
+            height=220, font=dict(color="#a0aec0"), margin=dict(l=10,r=10,t=36,b=10))
         st.plotly_chart(fig_fan, use_container_width=True)
-        html_collector.append(plotly_to_html(fig_fan))
-
+    
     # ---------- 直播板块 ----------
     if ldata is not None and not ldata.empty:
-        st.markdown("### 📡 直播板块")
-        html_collector.append('<div class="sub-title">📡 直播板块</div>')
-
+        st.markdown('<div class="sub-title">📡 直播板块</div>',
+                    unsafe_allow_html=True)
+        
         l_kpis = [
             ("累计看播数", "累计看播数", "累计看播数_上期"),
             ("累计开播数", "累计开播数", "累计开播数_上期"),
         ]
         lcols = st.columns(len(l_kpis))
-        kpi_html_parts2 = []
         for i, (label, cur_col, prev_col) in enumerate(l_kpis):
             cur_val  = ldata[cur_col].iloc[-1]  if cur_col  in ldata.columns else None
             prev_val = ldata[prev_col].iloc[-1] if prev_col in ldata.columns else None
             delta    = (cur_val - prev_val)/prev_val if (cur_val and prev_val and prev_val!=0) else None
             with lcols[i]:
                 _kpi_card(label, cur_val, delta)
-            kpi_html_parts2.append(_kpi_card_html(label, cur_val, delta))
-        html_collector.append(f'<div class="kpi-row">{"".join(kpi_html_parts2)}</div>')
-
-        if "ACU分层" in ldata.columns:
-            st.markdown("**不同ACU分层指标**")
-            fig_acu = make_subplots(rows=1, cols=2,
-                subplot_titles=["人均开播场次","场均ACU"])
-            layers_l = ldata.drop_duplicates("ACU分层")
-            colors = ["#4e79a7","#e05c5c","#59a14f","#f28e2b","#b07aa1"]
-            if "人均开播场次" in layers_l.columns:
-                clr = [colors[i%len(colors)] for i in range(len(layers_l))]
-                fig_acu.add_trace(go.Bar(x=layers_l["ACU分层"],y=layers_l["人均开播场次"],
-                    marker_color=clr, showlegend=False), row=1,col=1)
-            if "场均ACU" in layers_l.columns:
-                clr = [colors[i%len(colors)] for i in range(len(layers_l))]
-                fig_acu.add_trace(go.Bar(x=layers_l["ACU分层"],y=layers_l["场均ACU"],
-                    marker_color=clr, showlegend=False), row=1,col=2)
-            fig_acu.update_layout(
-                paper_bgcolor="#0e1117", plot_bgcolor="#1a1f2e",
-                height=220, font=dict(color="#a0aec0"),
-                margin=dict(l=10,r=10,t=36,b=10)
-            )
-            st.plotly_chart(fig_acu, use_container_width=True)
-            html_collector.append(plotly_to_html(fig_acu))
 
 def _kpi_card(label, value, delta=None):
     val_str = fmt_num(value) if value is not None else "-"
@@ -983,47 +825,6 @@ def _kpi_card(label, value, delta=None):
     <div class="kpi-value">{val_str}</div>
     {dlt_str}
     </div>""", unsafe_allow_html=True)
-
-def _kpi_card_html(label, value, delta=None):
-    val_str = fmt_num(value) if value is not None else "-"
-    dlt_str = ""
-    if delta is not None:
-        pct = delta * 100
-        color = "#48bb78" if pct >= 0 else "#fc8181"
-        arrow = "▲" if pct >= 0 else "▼"
-        dlt_str = f"<div style='color:{color};font-size:13px'>{arrow} {abs(pct):.1f}% vs 上周期</div>"
-    return f"""<div class="kpi-card">
-    <div class="kpi-label">{label}</div>
-    <div class="kpi-value">{val_str}</div>
-    {dlt_str}
-    </div>"""
-
-def _get_horn_df(sheets):
-    if sheets is None:
-        return None, None
-    vdf = None
-    ldf = None
-    # 处理不同类型的输入
-    if isinstance(sheets, dict):
-        for k, v in sheets.items():
-            kk = str(k)
-            if "视频" in kk:
-                vdf = v.copy() if isinstance(v, pd.DataFrame) else None
-            elif "直播" in kk:
-                ldf = v.copy() if isinstance(v, pd.DataFrame) else None
-        if vdf is None and sheets:
-            first_val = list(sheets.values())[0]
-            vdf = first_val.copy() if isinstance(first_val, pd.DataFrame) else None
-    elif isinstance(sheets, pd.DataFrame):
-        vdf = sheets.copy()
-    
-    # 标准化列名
-    if vdf is not None:
-        vdf = normalize_columns(vdf)
-    if ldf is not None:
-        ldf = normalize_columns(ldf)
-        
-    return vdf, ldf
 
 def _gen_demo_horn():
     np.random.seed(99)
@@ -1041,10 +842,7 @@ def _gen_demo_horn():
         "粉丝分层": ["0-1k","1k-1w","1w-10w","10w+"] * 9 + ["0-1k"],
         "人均投稿数":   np.random.uniform(1,5,n).round(2),
         "稿均播放数":   np.random.randint(1000, 50000, n),
-        "人均投稿数_上期": np.random.uniform(0.8,4.5,n).round(2),
-        "稿均播放数_上期": np.random.randint(800,45000, n),
     })
-
     ldf = pd.DataFrame({
         "日期": dates,
         "累计看播数":  np.cumsum(np.random.randint(500_000, 2_000_000, n)),
@@ -1054,10 +852,57 @@ def _gen_demo_horn():
         "ACU分层": ["<50","50-200","200-500","500+"] * 9 + ["<50"],
         "人均开播场次": np.random.uniform(1,8,n).round(2),
         "场均ACU": np.random.randint(50, 600, n),
-        "人均开播场次_上期": np.random.uniform(0.8,7,n).round(2),
-        "场均ACU_上期": np.random.randint(40, 550, n),
     })
     return vdf, ldf
+
+# ============================================================
+# ============ 数据解析函数 ================================
+# ============================================================
+def parse_uploaded_data(uploaded_file):
+    """解析上传的Excel文件，自动分配到各板块"""
+    try:
+        sheets = safe_read_excel(uploaded_file)
+        if sheets is None:
+            return
+        
+        if isinstance(sheets, dict):
+            # 解析各sheet
+            for sheet_name, df in sheets.items():
+                df = normalize_columns(df)
+                sheet_lower = str(sheet_name).lower()
+                
+                if "节点" in sheet_lower:
+                    st.session_state.data_store["block1"] = df
+                elif "大盘" in sheet_lower:
+                    st.session_state.data_store["block2"] = df
+                elif "投放" in sheet_lower:
+                    st.session_state.data_store["block3"] = df
+                elif "视频" in sheet_lower:
+                    st.session_state.data_store["block4_video"] = df
+                elif "直播" in sheet_lower:
+                    st.session_state.data_store["block4_live"] = df
+            
+            # 如果没有单独的节点sheet，尝试从节点数据sheet读取
+            if "block1" not in st.session_state.data_store:
+                for sheet_name, df in sheets.items():
+                    if "节点" in str(sheet_name):
+                        st.session_state.data_store["block1"] = normalize_columns(df)
+                        break
+            
+            st.success(f"✅ 已解析 {len(sheets)} 个数据表")
+        else:
+            # 单个DataFrame，尝试判断类型
+            df = normalize_columns(sheets)
+            cols = [c.lower() for c in df.columns]
+            if any("节点类型" in c or "节点名称" in c for c in cols):
+                st.session_state.data_store["block1"] = df
+            elif any("播放量" in c and "供给量" in c for c in cols):
+                st.session_state.data_store["block2"] = df
+            elif any("消耗金额" in c or "平台" in c for c in cols):
+                st.session_state.data_store["block3"] = df
+            st.success("✅ 数据已加载")
+    except Exception as e:
+        st.error(f"文件解析失败：{e}")
 
 # ============================================================
 # ============ 主程序入口 =====================================
@@ -1068,16 +913,29 @@ def main():
     📊 项目策略监测看板
     </h1>
     <p style='text-align:center;color:#a0aec0;font-size:13px;margin-bottom:20px;'>
-    支持 Excel 上传解析 · 实时渲染 · 一键导出 HTML
+    单一数据上传 · 自动解析 · 一键导出 HTML
     </p>
     """, unsafe_allow_html=True)
-
+    
     html_parts = []
-
+    
     # 侧边栏
     with st.sidebar:
         st.markdown("### ⚙️ 控制面板")
         st.markdown(f"**今日日期：** `{TODAY.strftime('%Y-%m-%d')}`")
+        st.divider()
+        
+        # 单一上传入口
+        st.markdown('<div class="upload-hint">', unsafe_allow_html=True)
+        uploaded_file = st.file_uploader(
+            "📤 上传数据文件（Excel）",
+            type=["xlsx", "xls"],
+            key="main_upload"
+        )
+        if uploaded_file:
+            parse_uploaded_data(uploaded_file)
+        st.markdown('</div>', unsafe_allow_html=True)
+        
         st.divider()
         show_b1 = st.checkbox("板块一：游戏 & 项目节点", value=True)
         show_b2 = st.checkbox("板块二：抖音专区监测", value=True)
@@ -1085,7 +943,7 @@ def main():
         show_b4 = st.checkbox("板块四：小喇叭", value=True)
         st.divider()
         export_btn = st.button("📥 导出为 HTML", use_container_width=True)
-
+    
     # 渲染各板块
     if show_b1:
         render_block1(html_parts)
@@ -1098,7 +956,7 @@ def main():
         st.divider()
     if show_b4:
         render_block4(html_parts)
-
+    
     # HTML 导出
     if export_btn:
         full_html = generate_full_html(html_parts)
