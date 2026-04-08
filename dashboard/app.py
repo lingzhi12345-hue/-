@@ -103,16 +103,26 @@ def delta_html(val, reverse=False):
         return f"<span style='color:#fc8181'>▼ {abs(pct):.1f}%</span>"
 
 def safe_read_excel(file, sheet_name=None):
+    """安全读取Excel，返回DataFrame或None"""
     try:
-        if sheet_name:
-            return pd.read_excel(file, sheet_name=sheet_name)
-        return pd.read_excel(file, sheet_name=None)
+        if sheet_name is not None:
+            result = pd.read_excel(file, sheet_name=sheet_name)
+        else:
+            result = pd.read_excel(file, sheet_name=None)
+        return result
     except Exception as e:
         st.error(f"文件解析失败：{e}")
         return None
 
 def plotly_to_html(fig):
     return fig.to_html(full_html=False, include_plotlyjs=False)
+
+def normalize_columns(df):
+    """安全处理列名：转换为字符串，处理空值"""
+    if df is None:
+        return df
+    df.columns = [str(c).strip() if c is not None else "" for c in df.columns]
+    return df
 
 # ============================================================
 # HTML 导出
@@ -173,19 +183,23 @@ def render_block1(html_collector):
         if uploaded:
             df = safe_read_excel(uploaded, sheet_name=0)
             if df is not None:
-                # 安全处理列名：转换为字符串，处理空值
-                df.columns = [str(c).strip() if c is not None else "" for c in df.columns]
-                # 列名兼容映射
-                col_map = {}
-                for c in df.columns:
-                    if "类型" in c: col_map[c] = "节点类型"
-                    elif "名称" in c or "名字" in c: col_map[c] = "节点名称"
-                    elif "日期" in c or "时间" in c or "date" in c.lower(): col_map[c] = "日期"
-                    elif "备注" in c or "说明" in c: col_map[c] = "备注"
-                df.rename(columns=col_map, inplace=True)
-                df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
-                st.session_state.data_store["block1"] = df
-                st.success(f"✅ 已加载 {len(df)} 条节点数据")
+                # 检查返回类型，如果是dict则取第一个值
+                if isinstance(df, dict):
+                    df = list(df.values())[0] if df else None
+                if df is not None and isinstance(df, pd.DataFrame):
+                    df = normalize_columns(df)
+                    # 列名兼容映射
+                    col_map = {}
+                    for c in df.columns:
+                        if "类型" in str(c): col_map[c] = "节点类型"
+                        elif "名称" in str(c) or "名字" in str(c): col_map[c] = "节点名称"
+                        elif "日期" in str(c) or "时间" in str(c) or "date" in str(c).lower(): col_map[c] = "日期"
+                        elif "备注" in str(c) or "说明" in str(c): col_map[c] = "备注"
+                    df.rename(columns=col_map, inplace=True)
+                    if "日期" in df.columns:
+                        df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
+                    st.session_state.data_store["block1"] = df
+                    st.success(f"✅ 已加载 {len(df)} 条节点数据")
 
     df = st.session_state.data_store.get("block1")
     # 无数据时用示例
@@ -207,26 +221,26 @@ def render_block1(html_collector):
     q2_start = datetime(TODAY.year, 4, 1)
     q2_end   = datetime(TODAY.year, 6, 30)
 
-    df = df[df["日期"].between(q2_start, q2_end)].copy()
+    if "日期" in df.columns:
+        df = df[df["日期"].between(q2_start, q2_end)].copy()
 
-    game_nodes = df[df["节点类型"].str.contains("游戏", na=False)]
-    proj_nodes = df[df["节点类型"].str.contains("项目", na=False)]
+    game_nodes = df[df["节点类型"].str.contains("游戏", na=False)] if "节点类型" in df.columns else pd.DataFrame()
+    proj_nodes = df[df["节点类型"].str.contains("项目", na=False)] if "节点类型" in df.columns else pd.DataFrame()
 
     total_days = (q2_end - q2_start).days
     today_offset = max(0, min((TODAY - q2_start).days, total_days))
 
     fig = go.Figure()
 
-    # 今日竖线
-    fig.add_vline(
-        x=TODAY,
-        line_color="#f6c90e",
-        line_width=2,
-        line_dash="dash",
-        annotation_text=f"今日 {TODAY.strftime('%m/%d')}",
-        annotation_position="top",
-        annotation_font_color="#f6c90e"
-    )
+    # 先添加一个隐藏的trace，确保图表有数据范围
+    fig.add_trace(go.Scatter(
+        x=[q2_start, q2_end],
+        y=[1, 1],
+        mode="markers",
+        marker=dict(size=0, color="rgba(0,0,0,0)"),
+        showlegend=False,
+        hoverinfo="skip"
+    ))
 
     # 游戏节点（上方，y=1）
     if not game_nodes.empty:
@@ -279,6 +293,18 @@ def render_block1(html_collector):
         ),
         margin=dict(l=10, r=10, t=40, b=10),
         font=dict(color="#ffffff")
+    )
+
+    # 今日竖线 - 使用字符串格式避免类型错误
+    today_str = TODAY.strftime("%Y-%m-%d")
+    fig.add_vline(
+        x=today_str,
+        line_color="#f6c90e",
+        line_width=2,
+        line_dash="dash",
+        annotation_text=f"今日 {TODAY.strftime('%m/%d')}",
+        annotation_position="top",
+        annotation_font_color="#f6c90e"
     )
 
     st.plotly_chart(fig, use_container_width=True)
@@ -341,7 +367,10 @@ def render_block2(html_collector):
             sheets = safe_read_excel(uploaded)
             if sheets is not None:
                 st.session_state.data_store["block2_raw"] = sheets
-                st.success(f"✅ 已加载 Sheets: {list(sheets.keys())}")
+                if isinstance(sheets, dict):
+                    st.success(f"✅ 已加载 Sheets: {list(sheets.keys())}")
+                else:
+                    st.success(f"✅ 已加载数据")
 
     sheets = st.session_state.data_store.get("block2_raw")
     df_main = _get_zone_df(sheets)
@@ -355,18 +384,26 @@ def render_block2(html_collector):
 def _get_zone_df(sheets):
     if sheets is None:
         return None
-    key = None
-    for k in sheets:
-        if "大盘" in str(k) or "main" in str(k).lower():
-            key = k
-            break
-    if key is None and sheets:
-        key = list(sheets.keys())[0]
-    if key is None:
+    # 如果是单个DataFrame，直接使用
+    if isinstance(sheets, pd.DataFrame):
+        df = sheets.copy()
+    # 如果是dict，找大盘数据
+    elif isinstance(sheets, dict):
+        key = None
+        for k in sheets:
+            if "大盘" in str(k) or "main" in str(k).lower():
+                key = k
+                break
+        if key is None and sheets:
+            key = list(sheets.keys())[0]
+        if key is None:
+            return None
+        df = sheets[key].copy()
+    else:
         return None
-    df = sheets[key].copy()
-    df.columns = [str(c).strip() if c is not None else "" for c in df.columns]
-
+    
+    df = normalize_columns(df)
+    
     # 日期列处理
     date_col = resolve_col(df.columns, "日期")
     if date_col and date_col != "日期":
@@ -398,8 +435,6 @@ def _gen_demo_zone_data():
     # 绿灯加成模拟
     green_boost = np.zeros(120)
     for i, d in enumerate(dates):
-        # 上期绿灯 2月1日->按天偏移到3月1日模拟前10天
-        # 本期绿灯 4月1日起
         cur_day = (d - datetime(TODAY.year, 4, 1)).days
         prev_day = (d - datetime(TODAY.year, 2, 1)).days
         if 0 <= cur_day <= 30:
@@ -592,12 +627,15 @@ def render_block3(html_collector):
         if uploaded:
             df = safe_read_excel(uploaded, sheet_name=0)
             if df is not None:
-                # 安全处理列名：转换为字符串，处理空值
-                df.columns = [str(c).strip() if c is not None else "" for c in df.columns]
-                if "日期" in df.columns:
-                    df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
-                st.session_state.data_store["block3"] = df
-                st.success(f"✅ 已加载 {len(df)} 条投放数据")
+                # 检查返回类型
+                if isinstance(df, dict):
+                    df = list(df.values())[0] if df else None
+                if df is not None and isinstance(df, pd.DataFrame):
+                    df = normalize_columns(df)
+                    if "日期" in df.columns:
+                        df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
+                    st.session_state.data_store["block3"] = df
+                    st.success(f"✅ 已加载 {len(df)} 条投放数据")
 
     df = st.session_state.data_store.get("block3")
     if df is None or df.empty:
@@ -620,15 +658,17 @@ def render_block3(html_collector):
             else:
                 grp = df.groupby("平台").agg(**agg_dict).reset_index()
             fig_plat = make_subplots(specs=[[{"secondary_y": True}]])
-            fig_plat.add_trace(go.Bar(
-                x=grp["平台"], y=grp["消耗金额"],
-                name="消耗金额", marker_color="#4e79a7"
-            ), secondary_y=False)
-            fig_plat.add_trace(go.Scatter(
-                x=grp["平台"], y=grp["播放量"],
-                name="播放量", mode="lines+markers",
-                line=dict(color="#f28e2b", width=2)
-            ), secondary_y=True)
+            if "消耗金额" in grp.columns:
+                fig_plat.add_trace(go.Bar(
+                    x=grp["平台"], y=grp["消耗金额"],
+                    name="消耗金额", marker_color="#4e79a7"
+                ), secondary_y=False)
+            if "播放量" in grp.columns:
+                fig_plat.add_trace(go.Scatter(
+                    x=grp["平台"], y=grp["播放量"],
+                    name="播放量", mode="lines+markers",
+                    line=dict(color="#f28e2b", width=2)
+                ), secondary_y=True)
             fig_plat.update_layout(
                 paper_bgcolor="#0e1117", plot_bgcolor="#1a1f2e",
                 height=260, font=dict(color="#fff"),
@@ -641,7 +681,7 @@ def render_block3(html_collector):
     # ---- 一级单元预算消耗 ----
     with col2:
         st.markdown("**💼 各一级单元预算消耗**")
-        if "一级单元" in df.columns:
+        if "一级单元" in df.columns and "消耗金额" in df.columns:
             # 结算 + 确认合作
             confirmed = df[df.get("确认合作", pd.Series(["是"]*len(df))) == "是"] if "确认合作" in df.columns else df
             grp2 = confirmed.groupby("一级单元")["消耗金额"].sum().reset_index()
@@ -700,12 +740,15 @@ def render_block3(html_collector):
             subplot_titles=["发布条数","播放量","CPM"])
         colors = ["#4e79a7","#e05c5c","#59a14f","#f28e2b","#b07aa1","#76b7b2"]
         clr = [colors[i % len(colors)] for i in range(len(type_grp))]
-        fig_type.add_trace(go.Bar(x=type_grp["内容类型"],y=type_grp["发布条数"],
-            marker_color=clr, showlegend=False), row=1,col=1)
-        fig_type.add_trace(go.Bar(x=type_grp["内容类型"],y=type_grp["播放量"],
-            marker_color=clr, showlegend=False), row=1,col=2)
-        fig_type.add_trace(go.Bar(x=type_grp["内容类型"],y=type_grp["CPM"],
-            marker_color=clr, showlegend=False), row=1,col=3)
+        if "发布条数" in type_grp.columns:
+            fig_type.add_trace(go.Bar(x=type_grp["内容类型"],y=type_grp["发布条数"],
+                marker_color=clr, showlegend=False), row=1,col=1)
+        if "播放量" in type_grp.columns:
+            fig_type.add_trace(go.Bar(x=type_grp["内容类型"],y=type_grp["播放量"],
+                marker_color=clr, showlegend=False), row=1,col=2)
+        if "CPM" in type_grp.columns:
+            fig_type.add_trace(go.Bar(x=type_grp["内容类型"],y=type_grp["CPM"],
+                marker_color=clr, showlegend=False), row=1,col=3)
         fig_type.update_layout(
             paper_bgcolor="#0e1117", plot_bgcolor="#1a1f2e",
             height=240, font=dict(color="#a0aec0"),
@@ -803,7 +846,10 @@ def render_block4(html_collector):
             sheets = safe_read_excel(uploaded)
             if sheets is not None:
                 st.session_state.data_store["block4_raw"] = sheets
-                st.success(f"✅ 已加载 Sheets: {list(sheets.keys())}")
+                if isinstance(sheets, dict):
+                    st.success(f"✅ 已加载 Sheets: {list(sheets.keys())}")
+                else:
+                    st.success(f"✅ 已加载数据")
 
     sheets = st.session_state.data_store.get("block4_raw")
     vdata, ldata = _get_horn_df(sheets)
@@ -851,12 +897,13 @@ def render_block4(html_collector):
         fig_fan = make_subplots(rows=1, cols=2,
             subplot_titles=["人均投稿数","稿均播放数"])
         colors = ["#4e79a7","#e05c5c","#59a14f","#f28e2b","#b07aa1"]
-        clr = [colors[i%len(colors)] for i in range(len(vdata["粉丝分层"].unique()))]
         layers = vdata.drop_duplicates("粉丝分层")
         if "人均投稿数" in layers.columns:
+            clr = [colors[i%len(colors)] for i in range(len(layers))]
             fig_fan.add_trace(go.Bar(x=layers["粉丝分层"],y=layers["人均投稿数"],
                 marker_color=clr, showlegend=False), row=1,col=1)
         if "稿均播放数" in layers.columns:
+            clr = [colors[i%len(colors)] for i in range(len(layers))]
             fig_fan.add_trace(go.Bar(x=layers["粉丝分层"],y=layers["稿均播放数"],
                 marker_color=clr, showlegend=False), row=1,col=2)
         fig_fan.update_layout(
@@ -893,11 +940,12 @@ def render_block4(html_collector):
                 subplot_titles=["人均开播场次","场均ACU"])
             layers_l = ldata.drop_duplicates("ACU分层")
             colors = ["#4e79a7","#e05c5c","#59a14f","#f28e2b","#b07aa1"]
-            clr = [colors[i%len(colors)] for i in range(len(layers_l))]
             if "人均开播场次" in layers_l.columns:
+                clr = [colors[i%len(colors)] for i in range(len(layers_l))]
                 fig_acu.add_trace(go.Bar(x=layers_l["ACU分层"],y=layers_l["人均开播场次"],
                     marker_color=clr, showlegend=False), row=1,col=1)
             if "场均ACU" in layers_l.columns:
+                clr = [colors[i%len(colors)] for i in range(len(layers_l))]
                 fig_acu.add_trace(go.Bar(x=layers_l["ACU分层"],y=layers_l["场均ACU"],
                     marker_color=clr, showlegend=False), row=1,col=2)
             fig_acu.update_layout(
@@ -942,14 +990,26 @@ def _get_horn_df(sheets):
         return None, None
     vdf = None
     ldf = None
-    for k, v in sheets.items():
-        kk = str(k)
-        if "视频" in kk:
-            vdf = v.copy()
-        elif "直播" in kk:
-            ldf = v.copy()
-    if vdf is None and sheets:
-        vdf = list(sheets.values())[0].copy()
+    # 处理不同类型的输入
+    if isinstance(sheets, dict):
+        for k, v in sheets.items():
+            kk = str(k)
+            if "视频" in kk:
+                vdf = v.copy() if isinstance(v, pd.DataFrame) else None
+            elif "直播" in kk:
+                ldf = v.copy() if isinstance(v, pd.DataFrame) else None
+        if vdf is None and sheets:
+            first_val = list(sheets.values())[0]
+            vdf = first_val.copy() if isinstance(first_val, pd.DataFrame) else None
+    elif isinstance(sheets, pd.DataFrame):
+        vdf = sheets.copy()
+    
+    # 标准化列名
+    if vdf is not None:
+        vdf = normalize_columns(vdf)
+    if ldf is not None:
+        ldf = normalize_columns(ldf)
+        
     return vdf, ldf
 
 def _gen_demo_horn():
