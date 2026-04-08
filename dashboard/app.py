@@ -163,7 +163,7 @@ body {{ background:#0e1117; color:#fff; font-family:'PingFang SC','Microsoft YaH
 </html>"""
 
 # ============================================================
-# ============ 板块一：光遇游戏 & 项目节点 ========================
+# ============ 板块一：游戏 & 项目节点 ========================
 # ============================================================
 def render_block1(html_collector):
     st.markdown('<div class="section-title">🎮 板块一：游戏 & 项目节点（Q2 时间轴）</div>',
@@ -174,7 +174,7 @@ def render_block1(html_collector):
         st.markdown("""
         **Excel 格式要求（单 Sheet）：**
 
-        | 光遇节点类型 | 节点名称 | 日期 | 备注 |
+        | 节点类型 | 节点名称 | 日期 | 备注 |
         |---------|---------|------|------|
         | 游戏节点 | 某版本上线 | 2025-04-15 | 可选 |
         | 项目节点 | 追光计划新一期 | 2025-05-01 | 可选 |
@@ -1069,7 +1069,7 @@ def main():
         show_b1 = st.checkbox("板块一：游戏 & 项目节点", value=True)
         show_b2 = st.checkbox("板块二：抖音专区监测", value=True)
         show_b3 = st.checkbox("板块三：达人投放", value=True)
-        show_b4 = st.checkbox("板块四：小喇叭", value=True)
+        show_b4 = st.checkbox("板块四：小喇叭专项", value=True)
         st.divider()
         export_btn = st.button("📥 导出为 HTML", use_container_width=True)
 
