@@ -13,7 +13,7 @@ from pathlib import Path
 # 页面配置
 # ============================================================
 st.set_page_config(
-    page_title="光遇 项目策略监测看板",
+    page_title="项目策略监测看板",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -135,7 +135,7 @@ def generate_full_html(html_parts: list) -> str:
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>光遇项目策略监测看板</title>
+<title>项目策略监测看板</title>
 {plotly_cdn}
 <style>
 body {{ background:#0e1117; color:#fff; font-family:'PingFang SC','Microsoft YaHei',sans-serif; margin:0; padding:16px; }}
