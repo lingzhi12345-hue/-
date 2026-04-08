@@ -648,4 +648,357 @@ def render_block3(html_collector):
             name="爆款条数", mode="lines+markers",
             line=dict(color="#f6c90e", width=2)
         ))
-        _style_fig(fig_daily, "每日发布 & 爆款", height=220
+        _style_fig(fig_daily, "每日发布 & 爆款", height=220)
+        st.plotly_chart(fig_daily, use_container_width=True)
+        html_collector.append(plotly_to_html(fig_daily))
+
+    # ---- 内容类型效果 ----
+    if "内容类型" in df.columns:
+        st.markdown("**🎯 内容类型 × 数据效果**")
+        type_grp = df.groupby("内容类型").agg(
+            发布条数=("内容类型","count"),
+            播放量=("播放量","sum"),
+            消耗金额=("消耗金额","sum")
+        ).reset_index()
+        type_grp["CPM"] = type_grp.apply(
+            lambda r: r["消耗金额"]/r["播放量"]*1000 if r["播放量"]>0 else 0, axis=1)
+
+        fig_type = make_subplots(rows=1, cols=3,
+            subplot_titles=["发布条数","播放量","CPM"])
+        colors = ["#4e79a7","#e05c5c","#59a14f","#f28e2b","#b07aa1","#76b7b2"]
+        clr = [colors[i % len(colors)] for i in range(len(type_grp))]
+        fig_type.add_trace(go.Bar(x=type_grp["内容类型"],y=type_grp["发布条数"],
+            marker_color=clr, showlegend=False), row=1,col=1)
+        fig_type.add_trace(go.Bar(x=type_grp["内容类型"],y=type_grp["播放量"],
+            marker_color=clr, showlegend=False), row=1,col=2)
+        fig_type.add_trace(go.Bar(x=type_grp["内容类型"],y=type_grp["CPM"],
+            marker_color=clr, showlegend=False), row=1,col=3)
+        fig_type.update_layout(
+            paper_bgcolor="#0e1117", plot_bgcolor="#1a1f2e",
+            height=240, font=dict(color="#a0aec0"),
+            margin=dict(l=10,r=10,t=36,b=10)
+        )
+        st.plotly_chart(fig_type, use_container_width=True)
+        html_collector.append(plotly_to_html(fig_type))
+
+    # ---- CPM 异常值 ----
+    st.markdown("**⚠️ 累计 CPM & 异常值合作**")
+    total_play = df["播放量"].sum() if "播放量" in df.columns else 0
+    total_cost = df["消耗金额"].sum() if "消耗金额" in df.columns else 0
+    total_cpm  = total_cost / total_play * 1000 if total_play > 0 else 0
+
+    df["CPM_item"] = df.apply(
+        lambda r: r["消耗金额"]/r["播放量"]*1000 if "播放量" in df.columns and r["播放量"]>0 else 0, axis=1)
+    top3_high = df.nlargest(3, "CPM_item")
+    top3_low  = df.nsmallest(3, "CPM_item")
+
+    c1, c2, c3 = st.columns([1,2,2])
+    with c1:
+        st.markdown(f"""
+        <div class="kpi-card">
+        <div class="kpi-label">累计 CPM</div>
+        <div class="kpi-value">{total_cpm:.1f}</div>
+        <div class="kpi-label">元/千次播放</div>
+        </div>""", unsafe_allow_html=True)
+
+    with c2:
+        st.markdown("🔴 **拉高 CPM Top3**")
+        id_col = "合作ID" if "合作ID" in df.columns else df.columns[0]
+        for _, row in top3_high.iterrows():
+            st.markdown(
+                f"- `{row.get(id_col,'-')}` — CPM: **{row['CPM_item']:.1f}** "
+                f"（消耗: {fmt_num(row.get('消耗金额',0),'元')} / "
+                f"播放: {fmt_num(row.get('播放量',0))}）")
+
+    with c3:
+        st.markdown("🟢 **拉低 CPM Top3**")
+        for _, row in top3_low.iterrows():
+            st.markdown(
+                f"- `{row.get(id_col,'-')}` — CPM: **{row['CPM_item']:.1f}** "
+                f"（消耗: {fmt_num(row.get('消耗金额',0),'元')} / "
+                f"播放: {fmt_num(row.get('播放量',0))}）")
+
+    html_collector.append(f"""
+    <div style="background:#1a1f2e;border-radius:8px;padding:14px;margin:10px 0;">
+    <div style="font-size:15px;color:#a0aec0;margin-bottom:8px;">累计 CPM: <b style="color:#fff">{total_cpm:.1f}</b> 元/千次播放</div>
+    </div>""")
+
+def _gen_demo_influencer():
+    np.random.seed(7)
+    platforms = ["抖音","B站","微博","小红书"]
+    units = ["品牌部","市场部","运营部","用户增长"]
+    ctypes = ["剧情","测评","混剪","挑战赛","开箱"]
+    n = 80
+    dates = [datetime(TODAY.year, 4, 1) + timedelta(days=np.random.randint(0,90)) for _ in range(n)]
+    costs = np.random.uniform(5000, 200000, n)
+    plays = costs * np.random.uniform(5, 150, n)
+    return pd.DataFrame({
+        "日期": dates,
+        "平台": np.random.choice(platforms, n),
+        "一级单元": np.random.choice(units, n),
+        "内容类型": np.random.choice(ctypes, n),
+        "消耗金额": costs.round(0),
+        "播放量": plays.round(0).astype(int),
+        "是否爆款": np.random.choice(["是","否"], n, p=[0.2,0.8]),
+        "确认合作": np.random.choice(["是","否"], n, p=[0.85,0.15]),
+        "合作ID": [f"KOL-{1000+i}" for i in range(n)],
+    })
+
+# ============================================================
+# ============ 板块四：小喇叭 ==================================
+# ============================================================
+def render_block4(html_collector):
+    st.markdown('<div class="section-title">📣 板块四：小喇叭 KPI 看板</div>',
+                unsafe_allow_html=True)
+    html_collector.append('<div class="section-title">📣 板块四：小喇叭 KPI 看板</div>')
+
+    with st.expander("📂 上传小喇叭数据（Excel）", expanded=True):
+        st.markdown("""
+        **Excel Sheet 说明：**
+        - Sheet `视频数据`：日期、主话题播放量日增、累计播放、累计投稿数、粉丝分层、人均投稿数、稿均播放
+        - Sheet `直播数据`：日期、累计看播数、累计开播数、ACU分层、人均开播场次、场均ACU
+
+        *上一周期数据可放在同 Sheet 中加 `_上期` 后缀列，或由 Agent 处理后写入*
+        """)
+        uploaded = st.file_uploader("上传小喇叭文件", type=["xlsx","xls"], key="block4_upload")
+        if uploaded:
+            sheets = safe_read_excel(uploaded)
+            if sheets is not None:
+                st.session_state.data_store["block4_raw"] = sheets
+                st.success(f"✅ 已加载 Sheets: {list(sheets.keys())}")
+
+    sheets = st.session_state.data_store.get("block4_raw")
+    vdata, ldata = _get_horn_df(sheets)
+    if vdata is None:
+        vdata, ldata = _gen_demo_horn()
+        st.info("ℹ️ 当前展示示例数据，上传文件后将自动替换")
+
+    # ---------- 视频板块 ----------
+    st.markdown("### 🎬 视频板块")
+    html_collector.append('<div class="sub-title">🎬 视频板块</div>')
+
+    # 主话题播放量日增趋势
+    if "日期" in vdata.columns and "主话题播放日增" in vdata.columns:
+        st.markdown("**主话题播放量日增走势**")
+        fig_vid = go.Figure()
+        fig_vid.add_trace(go.Scatter(
+            x=vdata["日期"], y=vdata["主话题播放日增"],
+            mode="lines+markers", name="主话题播放日增",
+            line=dict(color="#4e79a7", width=2),
+            fill="tozeroy", fillcolor="rgba(78,121,167,0.15)"
+        ))
+        _style_fig(fig_vid, "主话题播放量日增（Q2）", height=220)
+        st.plotly_chart(fig_vid, use_container_width=True)
+        html_collector.append(plotly_to_html(fig_vid))
+
+    # KPI 卡片 - 视频
+    v_kpis = [
+        ("累计播放", "累计播放", "累计播放_上期"),
+        ("累计投稿数", "累计投稿数", "累计投稿数_上期"),
+    ]
+    vcols = st.columns(len(v_kpis))
+    kpi_html_parts = []
+    for i, (label, cur_col, prev_col) in enumerate(v_kpis):
+        cur_val  = vdata[cur_col].iloc[-1]  if cur_col  in vdata.columns else None
+        prev_val = vdata[prev_col].iloc[-1] if prev_col in vdata.columns else None
+        delta    = (cur_val - prev_val) / prev_val if (cur_val and prev_val and prev_val!=0) else None
+        with vcols[i]:
+            _kpi_card(label, cur_val, delta)
+        kpi_html_parts.append(_kpi_card_html(label, cur_val, delta))
+    html_collector.append(f'<div class="kpi-row">{"".join(kpi_html_parts)}</div>')
+
+    # 粉丝分层
+    if "粉丝分层" in vdata.columns:
+        st.markdown("**不同粉丝分层指标**")
+        fig_fan = make_subplots(rows=1, cols=2,
+            subplot_titles=["人均投稿数","稿均播放数"])
+        colors = ["#4e79a7","#e05c5c","#59a14f","#f28e2b","#b07aa1"]
+        clr = [colors[i%len(colors)] for i in range(len(vdata["粉丝分层"].unique()))]
+        layers = vdata.drop_duplicates("粉丝分层")
+        if "人均投稿数" in layers.columns:
+            fig_fan.add_trace(go.Bar(x=layers["粉丝分层"],y=layers["人均投稿数"],
+                marker_color=clr, showlegend=False), row=1,col=1)
+        if "稿均播放数" in layers.columns:
+            fig_fan.add_trace(go.Bar(x=layers["粉丝分层"],y=layers["稿均播放数"],
+                marker_color=clr, showlegend=False), row=1,col=2)
+        fig_fan.update_layout(
+            paper_bgcolor="#0e1117", plot_bgcolor="#1a1f2e",
+            height=220, font=dict(color="#a0aec0"),
+            margin=dict(l=10,r=10,t=36,b=10)
+        )
+        st.plotly_chart(fig_fan, use_container_width=True)
+        html_collector.append(plotly_to_html(fig_fan))
+
+    # ---------- 直播板块 ----------
+    if ldata is not None and not ldata.empty:
+        st.markdown("### 📡 直播板块")
+        html_collector.append('<div class="sub-title">📡 直播板块</div>')
+
+        l_kpis = [
+            ("累计看播数", "累计看播数", "累计看播数_上期"),
+            ("累计开播数", "累计开播数", "累计开播数_上期"),
+        ]
+        lcols = st.columns(len(l_kpis))
+        kpi_html_parts2 = []
+        for i, (label, cur_col, prev_col) in enumerate(l_kpis):
+            cur_val  = ldata[cur_col].iloc[-1]  if cur_col  in ldata.columns else None
+            prev_val = ldata[prev_col].iloc[-1] if prev_col in ldata.columns else None
+            delta    = (cur_val - prev_val)/prev_val if (cur_val and prev_val and prev_val!=0) else None
+            with lcols[i]:
+                _kpi_card(label, cur_val, delta)
+            kpi_html_parts2.append(_kpi_card_html(label, cur_val, delta))
+        html_collector.append(f'<div class="kpi-row">{"".join(kpi_html_parts2)}</div>')
+
+        if "ACU分层" in ldata.columns:
+            st.markdown("**不同ACU分层指标**")
+            fig_acu = make_subplots(rows=1, cols=2,
+                subplot_titles=["人均开播场次","场均ACU"])
+            layers_l = ldata.drop_duplicates("ACU分层")
+            colors = ["#4e79a7","#e05c5c","#59a14f","#f28e2b","#b07aa1"]
+            clr = [colors[i%len(colors)] for i in range(len(layers_l))]
+            if "人均开播场次" in layers_l.columns:
+                fig_acu.add_trace(go.Bar(x=layers_l["ACU分层"],y=layers_l["人均开播场次"],
+                    marker_color=clr, showlegend=False), row=1,col=1)
+            if "场均ACU" in layers_l.columns:
+                fig_acu.add_trace(go.Bar(x=layers_l["ACU分层"],y=layers_l["场均ACU"],
+                    marker_color=clr, showlegend=False), row=1,col=2)
+            fig_acu.update_layout(
+                paper_bgcolor="#0e1117", plot_bgcolor="#1a1f2e",
+                height=220, font=dict(color="#a0aec0"),
+                margin=dict(l=10,r=10,t=36,b=10)
+            )
+            st.plotly_chart(fig_acu, use_container_width=True)
+            html_collector.append(plotly_to_html(fig_acu))
+
+def _kpi_card(label, value, delta=None):
+    val_str = fmt_num(value) if value is not None else "-"
+    dlt_str = ""
+    if delta is not None:
+        pct = delta * 100
+        color = "#48bb78" if pct >= 0 else "#fc8181"
+        arrow = "▲" if pct >= 0 else "▼"
+        dlt_str = f"<div style='color:{color};font-size:13px'>{arrow} {abs(pct):.1f}% vs 上周期</div>"
+    st.markdown(f"""
+    <div class="kpi-card">
+    <div class="kpi-label">{label}</div>
+    <div class="kpi-value">{val_str}</div>
+    {dlt_str}
+    </div>""", unsafe_allow_html=True)
+
+def _kpi_card_html(label, value, delta=None):
+    val_str = fmt_num(value) if value is not None else "-"
+    dlt_str = ""
+    if delta is not None:
+        pct = delta * 100
+        color = "#48bb78" if pct >= 0 else "#fc8181"
+        arrow = "▲" if pct >= 0 else "▼"
+        dlt_str = f"<div style='color:{color};font-size:13px'>{arrow} {abs(pct):.1f}% vs 上周期</div>"
+    return f"""<div class="kpi-card">
+    <div class="kpi-label">{label}</div>
+    <div class="kpi-value">{val_str}</div>
+    {dlt_str}
+    </div>"""
+
+def _get_horn_df(sheets):
+    if sheets is None:
+        return None, None
+    vdf = None
+    ldf = None
+    for k, v in sheets.items():
+        kk = str(k)
+        if "视频" in kk:
+            vdf = v.copy()
+        elif "直播" in kk:
+            ldf = v.copy()
+    if vdf is None and sheets:
+        vdf = list(sheets.values())[0].copy()
+    return vdf, ldf
+
+def _gen_demo_horn():
+    np.random.seed(99)
+    start = datetime(TODAY.year, 4, 1)
+    n = 37
+    dates = [start + timedelta(days=i) for i in range(n)]
+    base = 50_000_000
+    vdf = pd.DataFrame({
+        "日期": dates,
+        "主话题播放日增": (np.random.uniform(0.8,1.3, n) * base * np.linspace(0.8,1.2,n)).astype(int),
+        "累计播放":   np.cumsum(np.random.randint(40_000_000, 80_000_000, n)),
+        "累计投稿数": np.cumsum(np.random.randint(800,1500, n)),
+        "累计播放_上期":   np.cumsum(np.random.randint(35_000_000, 70_000_000, n)),
+        "累计投稿数_上期": np.cumsum(np.random.randint(600,1200, n)),
+        "粉丝分层": ["0-1k","1k-1w","1w-10w","10w+"] * 9 + ["0-1k"],
+        "人均投稿数":   np.random.uniform(1,5,n).round(2),
+        "稿均播放数":   np.random.randint(1000, 50000, n),
+        "人均投稿数_上期": np.random.uniform(0.8,4.5,n).round(2),
+        "稿均播放数_上期": np.random.randint(800,45000, n),
+    })
+
+    ldf = pd.DataFrame({
+        "日期": dates,
+        "累计看播数":  np.cumsum(np.random.randint(500_000, 2_000_000, n)),
+        "累计开播数":  np.cumsum(np.random.randint(50, 200, n)),
+        "累计看播数_上期":  np.cumsum(np.random.randint(400_000, 1_800_000, n)),
+        "累计开播数_上期":  np.cumsum(np.random.randint(40, 180, n)),
+        "ACU分层": ["<50","50-200","200-500","500+"] * 9 + ["<50"],
+        "人均开播场次": np.random.uniform(1,8,n).round(2),
+        "场均ACU": np.random.randint(50, 600, n),
+        "人均开播场次_上期": np.random.uniform(0.8,7,n).round(2),
+        "场均ACU_上期": np.random.randint(40, 550, n),
+    })
+    return vdf, ldf
+
+# ============================================================
+# ============ 主程序入口 =====================================
+# ============================================================
+def main():
+    st.markdown("""
+    <h1 style='text-align:center;color:#4e79a7;margin-bottom:4px;'>
+    📊 项目策略监测看板
+    </h1>
+    <p style='text-align:center;color:#a0aec0;font-size:13px;margin-bottom:20px;'>
+    支持 Excel 上传解析 · 实时渲染 · 一键导出 HTML
+    </p>
+    """, unsafe_allow_html=True)
+
+    html_parts = []
+
+    # 侧边栏
+    with st.sidebar:
+        st.markdown("### ⚙️ 控制面板")
+        st.markdown(f"**今日日期：** `{TODAY.strftime('%Y-%m-%d')}`")
+        st.divider()
+        show_b1 = st.checkbox("板块一：游戏 & 项目节点", value=True)
+        show_b2 = st.checkbox("板块二：抖音专区监测", value=True)
+        show_b3 = st.checkbox("板块三：达人投放", value=True)
+        show_b4 = st.checkbox("板块四：小喇叭", value=True)
+        st.divider()
+        export_btn = st.button("📥 导出为 HTML", use_container_width=True)
+
+    # 渲染各板块
+    if show_b1:
+        render_block1(html_parts)
+        st.divider()
+    if show_b2:
+        render_block2(html_parts)
+        st.divider()
+    if show_b3:
+        render_block3(html_parts)
+        st.divider()
+    if show_b4:
+        render_block4(html_parts)
+
+    # HTML 导出
+    if export_btn:
+        full_html = generate_full_html(html_parts)
+        b64 = base64.b64encode(full_html.encode("utf-8")).decode()
+        href = (f'<a href="data:text/html;base64,{b64}" '
+                f'download="策略监测看板_{TODAY.strftime("%Y%m%d")}.html" '
+                f'style="display:inline-block;padding:10px 20px;'
+                f'background:#4e79a7;color:#fff;border-radius:6px;'
+                f'text-decoration:none;font-weight:bold;">📥 点击下载 HTML 文件</a>')
+        st.markdown(href, unsafe_allow_html=True)
+        st.success("✅ HTML 已生成，点击上方链接下载")
+
+if __name__ == "__main__":
+    main()
