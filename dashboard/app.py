@@ -365,10 +365,23 @@ def _get_zone_df(sheets):
         return None
     df = sheets[key].copy()
     df.columns = [str(c).strip() for c in df.columns]
+    
+    # 日期列处理
     date_col = resolve_col(df.columns, "日期")
-    if date_col:
+    if date_col and date_col != "日期":
         df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
         df.rename(columns={date_col: "日期"}, inplace=True)
+    elif "日期" in df.columns:
+        df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
+    
+    # 确保关键列存在（不存在则创建空列）
+    for col in ["播放量", "供给量", "专注作者播放", "专注作者供给"]:
+        resolved = resolve_col(df.columns, col)
+        if resolved and resolved != col:
+            df.rename(columns={resolved: col}, inplace=True)
+        elif col not in df.columns:
+            df[col] = np.nan
+    
     return df
 
 def _gen_demo_zone_data():
@@ -462,15 +475,19 @@ def _render_zone_green(df, html_collector):
     # 构建"相对天数"数据（前10天 + 当天 + 后30天 = 41点）
     def build_relative(start_dt, label):
         rows = []
+        play_col = resolve_col(df.columns, "播放量") or "播放量"
+        supply_col = resolve_col(df.columns, "供给量") or "供给量"
         for offset in range(-10, 31):
             d = start_dt + timedelta(days=offset)
             row = df[df["日期"] == d]
             if not row.empty:
+                play_val = row[play_col].values[0] if play_col in row.columns else np.nan
+                supply_val = row[supply_col].values[0] if supply_col in row.columns else np.nan
                 rows.append({
                     "offset": offset,
                     "label": label,
-                    "播放量": row["播放量"].values[0] if "播放量" in row.columns else np.nan,
-                    "供给量": row["供给量"].values[0] if "供给量" in row.columns else np.nan,
+                    "播放量": play_val,
+                    "供给量": supply_val,
                 })
             else:
                 rows.append({"offset": offset, "label": label,
@@ -586,10 +603,15 @@ def render_block3(html_collector):
     with col1:
         st.markdown("**📊 分平台消耗金额 & 播放量**")
         if "平台" in df.columns:
-            grp = df.groupby("平台").agg(
-                消耗金额=("消耗金额","sum"),
-                播放量=("播放量","sum")
-            ).reset_index()
+            agg_dict = {}
+            if "消耗金额" in df.columns:
+                agg_dict["消耗金额"] = ("消耗金额", "sum")
+            if "播放量" in df.columns:
+                agg_dict["播放量"] = ("播放量", "sum")
+            if not agg_dict:
+                grp = pd.DataFrame({"平台": df["平台"].unique()})
+            else:
+                grp = df.groupby("平台").agg(**agg_dict).reset_index()
             fig_plat = make_subplots(specs=[[{"secondary_y": True}]])
             fig_plat.add_trace(go.Bar(
                 x=grp["平台"], y=grp["消耗金额"],
@@ -655,13 +677,17 @@ def render_block3(html_collector):
     # ---- 内容类型效果 ----
     if "内容类型" in df.columns:
         st.markdown("**🎯 内容类型 × 数据效果**")
-        type_grp = df.groupby("内容类型").agg(
-            发布条数=("内容类型","count"),
-            播放量=("播放量","sum"),
-            消耗金额=("消耗金额","sum")
-        ).reset_index()
-        type_grp["CPM"] = type_grp.apply(
-            lambda r: r["消耗金额"]/r["播放量"]*1000 if r["播放量"]>0 else 0, axis=1)
+        agg_dict2 = {"发布条数": ("内容类型", "count")}
+        if "播放量" in df.columns:
+            agg_dict2["播放量"] = ("播放量", "sum")
+        if "消耗金额" in df.columns:
+            agg_dict2["消耗金额"] = ("消耗金额", "sum")
+        type_grp = df.groupby("内容类型").agg(**agg_dict2).reset_index()
+        if "播放量" in type_grp.columns and "消耗金额" in type_grp.columns:
+            type_grp["CPM"] = type_grp.apply(
+                lambda r: r["消耗金额"]/r["播放量"]*1000 if r["播放量"]>0 else 0, axis=1)
+        else:
+            type_grp["CPM"] = 0
 
         fig_type = make_subplots(rows=1, cols=3,
             subplot_titles=["发布条数","播放量","CPM"])
@@ -687,8 +713,13 @@ def render_block3(html_collector):
     total_cost = df["消耗金额"].sum() if "消耗金额" in df.columns else 0
     total_cpm  = total_cost / total_play * 1000 if total_play > 0 else 0
 
-    df["CPM_item"] = df.apply(
-        lambda r: r["消耗金额"]/r["播放量"]*1000 if "播放量" in df.columns and r["播放量"]>0 else 0, axis=1)
+    play_col_3 = "播放量" if "播放量" in df.columns else None
+    cost_col_3 = "消耗金额" if "消耗金额" in df.columns else None
+    if play_col_3 and cost_col_3:
+        df["CPM_item"] = df.apply(
+            lambda r: r[cost_col_3]/r[play_col_3]*1000 if r[play_col_3]>0 else 0, axis=1)
+    else:
+        df["CPM_item"] = 0
     top3_high = df.nlargest(3, "CPM_item")
     top3_low  = df.nsmallest(3, "CPM_item")
 
