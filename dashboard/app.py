@@ -173,7 +173,8 @@ def render_block1(html_collector):
         if uploaded:
             df = safe_read_excel(uploaded, sheet_name=0)
             if df is not None:
-                df.columns = [c.strip() for c in df.columns]
+                # 安全处理列名：转换为字符串，处理空值
+                df.columns = [str(c).strip() if c is not None else "" for c in df.columns]
                 # 列名兼容映射
                 col_map = {}
                 for c in df.columns:
@@ -364,8 +365,8 @@ def _get_zone_df(sheets):
     if key is None:
         return None
     df = sheets[key].copy()
-    df.columns = [str(c).strip() for c in df.columns]
-    
+    df.columns = [str(c).strip() if c is not None else "" for c in df.columns]
+
     # 日期列处理
     date_col = resolve_col(df.columns, "日期")
     if date_col and date_col != "日期":
@@ -591,7 +592,8 @@ def render_block3(html_collector):
         if uploaded:
             df = safe_read_excel(uploaded, sheet_name=0)
             if df is not None:
-                df.columns = [str(c).strip() for c in df.columns]
+                # 安全处理列名：转换为字符串，处理空值
+                df.columns = [str(c).strip() if c is not None else "" for c in df.columns]
                 if "日期" in df.columns:
                     df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
                 st.session_state.data_store["block3"] = df
