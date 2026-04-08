@@ -419,26 +419,31 @@ def _gen_demo_zone_data():
 def _render_zone_overview(df, html_collector):
     st.markdown('<div class="sub-title">📊 子版块1 — 抖音专区大盘（近90天）</div>',
                 unsafe_allow_html=True)
+    
+    # 安全检查
+    if "日期" not in df.columns:
+        st.warning("⚠️ 数据缺少日期列")
+        return
 
     q2_start = datetime(TODAY.year, 3, 1)
     q2_end   = datetime(TODAY.year, 6, 30)
     mask = (df["日期"] >= q2_start) & (df["日期"] <= q2_end)
-    dff = df[mask].sort_values("日期")
+    dff = df[mask].sort_values("日期").copy()
 
-    play_col   = resolve_col(df.columns, "播放量") or "播放量"
-    supply_col = resolve_col(df.columns, "供给量") or "供给量"
-    fp_col     = resolve_col(df.columns, "专注作者播放") or "专注作者播放"
-    fs_col     = resolve_col(df.columns, "专注作者供给") or "专注作者供给"
+    play_col   = "播放量" if "播放量" in df.columns else None
+    supply_col = "供给量" if "供给量" in df.columns else None
+    fp_col     = "专注作者播放" if "专注作者播放" in df.columns else None
+    fs_col     = "专注作者供给" if "专注作者供给" in df.columns else None
 
     # 播放趋势图
     fig_play = go.Figure()
-    if play_col in dff.columns:
+    if play_col:
         fig_play.add_trace(go.Scatter(
             x=dff["日期"], y=dff[play_col],
             name="总播放量", line=dict(color="#4e79a7", width=2),
             fill="tozeroy", fillcolor="rgba(78,121,167,0.15)"
         ))
-    if fp_col in dff.columns:
+    if fp_col:
         fig_play.add_trace(go.Scatter(
             x=dff["日期"], y=dff[fp_col],
             name="专注作者播放", line=dict(color="#59a14f", width=2, dash="dot")
@@ -449,13 +454,13 @@ def _render_zone_overview(df, html_collector):
 
     # 供给趋势图
     fig_sup = go.Figure()
-    if supply_col in dff.columns:
+    if supply_col:
         fig_sup.add_trace(go.Scatter(
             x=dff["日期"], y=dff[supply_col],
             name="总供给量", line=dict(color="#e05c5c", width=2),
             fill="tozeroy", fillcolor="rgba(224,92,92,0.15)"
         ))
-    if fs_col in dff.columns:
+    if fs_col:
         fig_sup.add_trace(go.Scatter(
             x=dff["日期"], y=dff[fs_col],
             name="专注作者供给", line=dict(color="#f28e2b", width=2, dash="dot")
@@ -475,8 +480,8 @@ def _render_zone_green(df, html_collector):
     # 构建"相对天数"数据（前10天 + 当天 + 后30天 = 41点）
     def build_relative(start_dt, label):
         rows = []
-        play_col = resolve_col(df.columns, "播放量") or "播放量"
-        supply_col = resolve_col(df.columns, "供给量") or "供给量"
+        play_col = "播放量" if "播放量" in df.columns else None
+        supply_col = "供给量" if "供给量" in df.columns else None
         for offset in range(-10, 31):
             d = start_dt + timedelta(days=offset)
             row = df[df["日期"] == d]
