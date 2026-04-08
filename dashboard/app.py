@@ -469,8 +469,8 @@ def _render_zone_green(df, html_collector):
                 rows.append({
                     "offset": offset,
                     "label": label,
-                    "播放量": row["播放量"].values[0] if "播放量" in row else np.nan,
-                    "供给量": row["供给量"].values[0] if "供给量" in row else np.nan,
+                    "播放量": row["播放量"].values[0] if "播放量" in row.columns else np.nan,
+                    "供给量": row["供给量"].values[0] if "供给量" in row.columns else np.nan,
                 })
             else:
                 rows.append({"offset": offset, "label": label,
