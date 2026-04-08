@@ -13,7 +13,7 @@ from pathlib import Path
 # 页面配置
 # ============================================================
 st.set_page_config(
-    page_title="项目策略监测看板",
+    page_title="项目策略监测看板v1",
     layout="wide",
     initial_sidebar_state="expanded"
 )
