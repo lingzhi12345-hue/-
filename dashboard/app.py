@@ -295,16 +295,25 @@ def render_block1(html_collector):
         font=dict(color="#ffffff")
     )
 
-    # 今日竖线 - 使用字符串格式避免类型错误
+    # 今日竖线 - 使用 add_shape 替代 add_vline 避免空图表类型错误
     today_str = TODAY.strftime("%Y-%m-%d")
-    fig.add_vline(
-        x=today_str,
+    fig.add_shape(
+        type="line",
+        x0=today_str, x1=today_str,
+        y0=0, y1=1,
+        yref="paper",
         line_color="#f6c90e",
         line_width=2,
         line_dash="dash",
-        annotation_text=f"今日 {TODAY.strftime('%m/%d')}",
-        annotation_position="top",
-        annotation_font_color="#f6c90e"
+    )
+    fig.add_annotation(
+        x=today_str,
+        y=1.02,
+        yref="paper",
+        text=f"今日 {TODAY.strftime('%m/%d')}",
+        showarrow=False,
+        font_color="#f6c90e",
+        font_size=11,
     )
 
     st.plotly_chart(fig, use_container_width=True)
@@ -556,8 +565,10 @@ def _render_zone_green(df, html_collector):
         line=dict(color="#e05c5c", width=2, dash="dash"),
         marker=dict(size=6, symbol="square")
     ))
-    fig_gplay.add_vline(x=0, line_color="#f6c90e", line_dash="dash",
-                        annotation_text="专区开始", annotation_font_color="#f6c90e")
+    fig_gplay.add_shape(type="line", x0=0, x1=0, y0=0, y1=1, yref="paper",
+                        line_color="#f6c90e", line_dash="dash", line_width=2)
+    fig_gplay.add_annotation(x=0, y=1.02, yref="paper", text="专区开始",
+                            showarrow=False, font_color="#f6c90e", font_size=11)
     _style_fig(fig_gplay, "播放量 — 专区前10天至后30天", height=260)
     fig_gplay.update_xaxes(tickvals=x_ticks[::5], ticktext=x_labels[::5])
     st.plotly_chart(fig_gplay, use_container_width=True)
@@ -578,8 +589,10 @@ def _render_zone_green(df, html_collector):
         line=dict(color="#f28e2b", width=2, dash="dot"),
         marker=dict(size=7, symbol="triangle-up")
     ))
-    fig_gsup.add_vline(x=0, line_color="#f6c90e", line_dash="dash",
-                       annotation_text="专区开始", annotation_font_color="#f6c90e")
+    fig_gsup.add_shape(type="line", x0=0, x1=0, y0=0, y1=1, yref="paper",
+                       line_color="#f6c90e", line_dash="dash", line_width=2)
+    fig_gsup.add_annotation(x=0, y=1.02, yref="paper", text="专区开始",
+                           showarrow=False, font_color="#f6c90e", font_size=11)
     _style_fig(fig_gsup, "供给量 — 专区前10天至后30天", height=260)
     fig_gsup.update_xaxes(tickvals=x_ticks[::5], ticktext=x_labels[::5])
     st.plotly_chart(fig_gsup, use_container_width=True)
@@ -1069,7 +1082,7 @@ def main():
         show_b1 = st.checkbox("板块一：游戏 & 项目节点", value=True)
         show_b2 = st.checkbox("板块二：抖音专区监测", value=True)
         show_b3 = st.checkbox("板块三：达人投放", value=True)
-        show_b4 = st.checkbox("板块四：小喇叭专项", value=True)
+        show_b4 = st.checkbox("板块四：小喇叭", value=True)
         st.divider()
         export_btn = st.button("📥 导出为 HTML", use_container_width=True)
 
