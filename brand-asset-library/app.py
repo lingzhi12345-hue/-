@@ -8,11 +8,7 @@ import yaml
 import json
 from datetime import datetime
 from pathlib import Path
-import sys
-
-# 添加项目路径
-sys.path.insert(0, str(Path(__file__).parent))
-from utils.asset_manager import AssetManager
+from typing import Dict, List, Optional
 
 # ========== 页面配置 ==========
 st.set_page_config(
@@ -21,6 +17,125 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# ========== 资产管理器（内嵌版本，避免导入问题） ==========
+class AssetManager:
+    """品牌资产管理器"""
+    
+    def __init__(self, assets_dir: str = "assets"):
+        self.assets_dir = Path(assets_dir)
+        self.assets_dir.mkdir(parents=True, exist_ok=True)
+        
+    def load_asset(self, asset_id: str) -> Optional[Dict]:
+        file_path = self.assets_dir / f"{asset_id}.yaml"
+        if not file_path.exists():
+            return None
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return yaml.safe_load(f)
+    
+    def list_assets(self, filters: Optional[Dict] = None) -> List[Dict]:
+        assets = []
+        for file_path in self.assets_dir.glob("*.yaml"):
+            with open(file_path, 'r', encoding='utf-8') as f:
+                asset = yaml.safe_load(f)
+                if asset:
+                    assets.append(asset)
+        assets.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        if filters:
+            assets = self._apply_filters(assets, filters)
+        return assets
+    
+    def _apply_filters(self, assets: List[Dict], filters: Dict) -> List[Dict]:
+        result = assets
+        if filters.get('author'):
+            result = [a for a in result if a.get('author') == filters['author']]
+        if filters.get('product'):
+            result = [a for a in result if a.get('source', {}).get('product') == filters['product']]
+        if filters.get('tags'):
+            filter_tags = set(filters['tags'])
+            result = [a for a in result if filter_tags & set(a.get('tags', []))]
+        if filters.get('keyword'):
+            keyword = filters['keyword'].lower()
+            result = [a for a in result if keyword in a.get('name', '').lower()
+                     or any(keyword in t.lower() for t in a.get('tags', []))]
+        return result
+    
+    def save_asset(self, asset_data: Dict) -> str:
+        if not asset_data.get('asset_id'):
+            today = datetime.now().strftime('%Y%m%d')
+            existing = list(self.assets_dir.glob(f"ASSET-{today}-*.yaml"))
+            next_num = len(existing) + 1
+            asset_data['asset_id'] = f"ASSET-{today}-{next_num:03d}"
+        asset_data['updated_at'] = datetime.now().strftime('%Y-%m-%d')
+        if not asset_data.get('created_at'):
+            asset_data['created_at'] = asset_data['updated_at']
+        self._validate_asset(asset_data)
+        file_path = self.assets_dir / f"{asset_data['asset_id']}.yaml"
+        with open(file_path, 'w', encoding='utf-8') as f:
+            yaml.dump(asset_data, f, allow_unicode=True, sort_keys=False)
+        return asset_data['asset_id']
+    
+    def _validate_asset(self, asset_data: Dict):
+        required_fields = ['name', 'author', 'source', 'tags', 'content_structure', 'top_cases']
+        missing = [f for f in required_fields if not asset_data.get(f)]
+        if missing:
+            raise ValueError(f"缺少必填字段: {', '.join(missing)}")
+        source = asset_data.get('source', {})
+        if not source.get('campaign_name'):
+            raise ValueError("source.campaign_name 为必填项")
+        if not asset_data.get('tags') or len(asset_data['tags']) == 0:
+            raise ValueError("tags 至少需要一项")
+        if not asset_data.get('content_structure') or len(asset_data['content_structure']) == 0:
+            raise ValueError("content_structure 至少需要一项")
+        if not asset_data.get('top_cases') or len(asset_data['top_cases']) == 0:
+            raise ValueError("top_cases 至少需要一项")
+    
+    def delete_asset(self, asset_id: str) -> bool:
+        file_path = self.assets_dir / f"{asset_id}.yaml"
+        if file_path.exists():
+            file_path.unlink()
+            return True
+        return False
+    
+    def get_statistics(self) -> Dict:
+        assets = self.list_assets()
+        tag_counts = {}
+        for asset in assets:
+            for tag in asset.get('tags', []):
+                tag_counts[tag] = tag_counts.get(tag, 0) + 1
+        author_counts = {}
+        for asset in assets:
+            author = asset.get('author', 'unknown')
+            author_counts[author] = author_counts.get(author, 0) + 1
+        product_counts = {}
+        for asset in assets:
+            product = asset.get('source', {}).get('product', 'unknown')
+            product_counts[product] = product_counts.get(product, 0) + 1
+        return {
+            'total_assets': len(assets),
+            'tag_distribution': tag_counts,
+            'author_distribution': author_counts,
+            'product_distribution': product_counts,
+        }
+    
+    def export_to_json(self, output_path: str):
+        assets = self.list_assets()
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(assets, f, ensure_ascii=False, indent=2)
+    
+    def search_similar_assets(self, tags: List[str], limit: int = 5) -> List[Dict]:
+        assets = self.list_assets()
+        query_tags = set(tags)
+        scored_assets = []
+        for asset in assets:
+            asset_tags = set(asset.get('tags', []))
+            intersection = len(query_tags & asset_tags)
+            union = len(query_tags | asset_tags)
+            score = intersection / union if union > 0 else 0
+            if score > 0:
+                scored_assets.append((score, asset))
+        scored_assets.sort(key=lambda x: x[0], reverse=True)
+        return [a for _, a in scored_assets[:limit]]
 
 # ========== 自定义样式 ==========
 st.markdown("""
@@ -85,7 +200,6 @@ st.sidebar.markdown("""
 if page == "📚 资产浏览":
     st.title("📚 资产浏览")
     
-    # 筛选器
     col1, col2, col3 = st.columns(3)
     with col1:
         filter_product = st.selectbox(
@@ -100,7 +214,6 @@ if page == "📚 资产浏览":
     with col3:
         sort_by = st.selectbox("排序", ["最新", "最多案例"])
     
-    # 获取资产列表
     filters = {}
     if filter_product != "全部":
         filters['product'] = filter_product
@@ -109,36 +222,30 @@ if page == "📚 资产浏览":
     
     assets = manager.list_assets(filters)
     
-    # 排序
     if sort_by == "最多案例":
         assets.sort(key=lambda x: len(x.get('top_cases', [])), reverse=True)
     
     st.markdown(f"**共 {len(assets)} 个资产**")
     st.markdown("---")
     
-    # 展示资产卡片
     for asset in assets:
         with st.expander(f"**{asset.get('name', '未命名')}** - {asset.get('author', '未知')}"):
             col1, col2 = st.columns([2, 1])
             
             with col1:
-                # 基本信息
                 st.markdown(f"**来源：** {asset.get('source', {}).get('campaign_name', '-')}")
                 st.markdown(f"**产品：** {asset.get('source', {}).get('product', '-')}")
                 st.markdown(f"**创建时间：** {asset.get('created_at', '-')}")
                 
-                # 标签
                 st.markdown("**标签：**")
                 tags_html = "".join([f'<span class="tag-badge">{t}</span>' for t in asset.get('tags', [])])
                 st.markdown(tags_html, unsafe_allow_html=True)
                 
-                # 爆款案例
                 st.markdown("**爆款案例：**")
                 for case in asset.get('top_cases', [])[:3]:
                     st.markdown(f"- {case.get('creator', '-')} | {case.get('platform', '-')} | 播放 {case.get('views', 0):,} | CPM {case.get('cpm', 0):.1f}")
             
             with col2:
-                # 操作按钮
                 if st.button("📋 查看详情", key=f"view_{asset.get('asset_id')}"):
                     st.session_state['view_asset'] = asset.get('asset_id')
                 
@@ -157,7 +264,6 @@ elif page == "➕ 创建资产":
     st.markdown("填写以下信息，创建新的品牌资产")
     
     with st.form("asset_form"):
-        # 基本信息
         st.subheader("📋 基本信息")
         col1, col2 = st.columns(2)
         with col1:
@@ -170,12 +276,10 @@ elif page == "➕ 创建资产":
         campaign_id = st.text_input("一级单号（可选）", placeholder="如：273292")
         period = st.text_input("时间段", placeholder="如：2026年3月")
         
-        # 标签
         st.subheader("🏷️ 标签")
         st.markdown("输入标签，用逗号分隔")
         tags_input = st.text_input("标签 *", placeholder="暗黑风, 神圣感, COS变装")
         
-        # 适用角色特征
         st.subheader("👤 适用角色特征（可选）")
         character_traits = st.text_area(
             "每行一个特征",
@@ -183,7 +287,6 @@ elif page == "➕ 创建资产":
             height=80
         )
         
-        # 内容结构
         st.subheader("🎬 内容结构 *")
         st.markdown("爆款视频的结构拆解，至少填写一个阶段")
         
@@ -210,7 +313,6 @@ elif page == "➕ 创建资产":
                         "example": phase_example
                     })
         
-        # 爆款案例
         st.subheader("🏆 爆款案例 *")
         st.markdown("至少填写一个成功案例")
         
@@ -242,16 +344,13 @@ elif page == "➕ 创建资产":
                         "key_success_factors": [f.strip() for f in case_factors.split('\n') if f.strip()]
                     })
         
-        # 注意事项
         st.subheader("📝 注意事项（可选）")
         notes = st.text_area("每行一个注意点", height=60)
         
-        # 提交按钮
         st.markdown("---")
         submitted = st.form_submit_button("✅ 创建资产", type="primary")
         
         if submitted:
-            # 验证必填字段
             errors = []
             if not asset_name:
                 errors.append("资产名称")
@@ -271,7 +370,6 @@ elif page == "➕ 创建资产":
             if errors:
                 st.error(f"请填写以下必填项：{', '.join(errors)}")
             else:
-                # 构建资产数据
                 asset_data = {
                     "name": asset_name,
                     "author": author,
@@ -300,7 +398,6 @@ elif page == "➕ 创建资产":
 elif page == "🔍 搜索资产":
     st.title("🔍 搜索资产")
     
-    # 搜索方式
     search_type = st.radio("搜索方式", ["关键词搜索", "标签匹配", "相似推荐"])
     
     if search_type == "关键词搜索":
@@ -312,7 +409,6 @@ elif page == "🔍 搜索资产":
                 st.markdown(f"- **{asset.get('name')}** ({asset.get('source', {}).get('product', '-')})")
     
     elif search_type == "标签匹配":
-        # 获取所有标签
         stats = manager.get_statistics()
         all_tags = list(stats.get('tag_distribution', {}).keys())
         
@@ -324,7 +420,6 @@ elif page == "🔍 搜索资产":
                 st.markdown(f"- **{asset.get('name')}** ({asset.get('source', {}).get('product', '-')})")
     
     elif search_type == "相似推荐":
-        # 获取所有资产
         all_assets = manager.list_assets()
         asset_names = [a.get('name') for a in all_assets]
         
@@ -344,7 +439,6 @@ elif page == "📊 统计面板":
     
     stats = manager.get_statistics()
     
-    # 总览卡片
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.markdown(f"""
@@ -377,7 +471,6 @@ elif page == "📊 统计面板":
     
     st.markdown("---")
     
-    # 标签分布
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("🏷️ 标签分布 TOP 10")
@@ -395,7 +488,6 @@ elif page == "📊 统计面板":
     
     st.markdown("---")
     
-    # 产品分布
     st.subheader("📦 产品分布")
     product_dist = stats.get('product_distribution', {})
     if product_dist:
@@ -446,7 +538,6 @@ def find_similar_assets(target_tags, assets, top_n=5):
     
     for asset in assets:
         asset_tags = set(asset.get('tags', []))
-        # Jaccard 相似度
         similarity = len(target_set & asset_tags) / len(target_set | asset_tags)
         if similarity > 0:
             scored.append((similarity, asset))
@@ -454,7 +545,6 @@ def find_similar_assets(target_tags, assets, top_n=5):
     scored.sort(reverse=True, key=lambda x: x[0])
     return [a for _, a in scored[:top_n]]
 
-# 使用示例
 similar = find_similar_assets(['暗黑风', '神圣感'], assets)
 """, language="python")
     
@@ -486,7 +576,6 @@ similar = find_similar_assets(['暗黑风', '神圣感'], assets)
 st.markdown("---")
 st.markdown("""
 <div style="text-align: center; color: #666; padding: 20px;">
-    品牌资产共享库 v1.0 | 由 OpenClaw 搭建 | 
-    <a href="https://github.com" target="_blank">GitHub</a>
+    品牌资产共享库 v1.0 | 由 OpenClaw 搭建
 </div>
 """, unsafe_allow_html=True)
