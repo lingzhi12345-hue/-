@@ -159,7 +159,7 @@ stats = get_statistics(assets)
 github_config = get_github_config()
 
 # ========== 侧边栏 ==========
-st.sidebar.title("🎨 品牌资产共享库")
+st.sidebar.title("🎨 内推广州*品牌资产库")
 st.sidebar.markdown(f"**资产总数: {len(assets)}**")
 
 if github_config:
@@ -451,12 +451,6 @@ elif page == "👥 权限说明":
     ### 🔐 产品隔离
     
     每个产品资产库独立，需要输入产品密码才能查看。
-    
-    ### 👑 超级管理员
-    
-    可访问所有产品资产，无需输入产品密码：
-    - `guoyajun@corp.netease.com`
-    - `huanglingzhi02@corp.netease.com`
     
     ### 🔑 产品管理员
     
