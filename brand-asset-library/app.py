@@ -1,6 +1,6 @@
 """
-内推广州组品牌资产库
-支持多用户共创、按产品分类、多种资产类型
+内推广州组*品牌资产共享库 
+支持多用户共创、按产品分类、多种资产类型、自由上传
 """
 
 import streamlit as st
@@ -23,17 +23,6 @@ st.set_page_config(
 # ========== 自定义样式 ==========
 st.markdown("""
 <style>
-    .stat-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 20px;
-        border-radius: 10px;
-        text-align: center;
-    }
-    .stat-number {
-        font-size: 32px;
-        font-weight: bold;
-    }
     .tag-badge {
         display: inline-block;
         background: #e3f2fd;
@@ -45,6 +34,17 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+# ========== 预设资产类型 ==========
+DEFAULT_ASSET_TYPES = [
+    "爆款内容",
+    "达人筛选",
+    "节点策略",
+    "创意模板",
+    "平台合作",
+    "小喇叭",
+    "其他"
+]
 
 # ========== GitHub 配置 ==========
 def get_github_config():
@@ -113,31 +113,38 @@ def get_statistics(assets: List[Dict]) -> Dict:
     }
     
     for asset in assets:
-        # 按产品统计
         product = asset.get('source', {}).get('product', '未分类')
         stats['by_product'][product] = stats['by_product'].get(product, 0) + 1
         
-        # 按资产类型统计
-        asset_type = asset.get('asset_type', '爆款内容')
+        asset_type = asset.get('asset_type', '未分类')
         stats['by_type'][asset_type] = stats['by_type'].get(asset_type, 0) + 1
         
-        # 按作者统计
         author = asset.get('author', '未知')
         stats['by_author'][author] = stats['by_author'].get(author, 0) + 1
         
-        # 按标签统计
         for tag in asset.get('tags', []):
             stats['by_tag'][tag] = stats['by_tag'].get(tag, 0) + 1
     
     return stats
 
+# ========== 获取所有资产类型（含自定义） ==========
+def get_all_asset_types(assets: List[Dict]) -> List[str]:
+    """获取所有资产类型，包括预设和用户自定义的"""
+    types_set = set(DEFAULT_ASSET_TYPES)
+    for asset in assets:
+        atype = asset.get('asset_type')
+        if atype and atype not in types_set:
+            types_set.add(atype)
+    return list(types_set)
+
 # ========== 主程序 ==========
 assets = get_assets()
 stats = get_statistics(assets)
+all_asset_types = get_all_asset_types(assets)
 github_config = get_github_config()
 
 # ========== 侧边栏 ==========
-st.sidebar.title("🎨 内推广州组品牌资产库")
+st.sidebar.title("🎨 品牌资产共享库")
 st.sidebar.markdown(f"**资产总数: {len(assets)}**")
 
 if github_config:
@@ -149,7 +156,7 @@ st.sidebar.markdown("---")
 
 page = st.sidebar.radio(
     "功能导航",
-    ["📚 资产浏览", "➕ 创建资产", "🔍 搜索资产", "📊 统计面板", "🔌 API集成", "👥 多人协作"]
+    ["📚 资产浏览", "➕ 上传资产", "🔍 搜索资产", "📊 统计面板", "🔌 API集成", "👥 多人协作"]
 )
 
 # ========== 页面：资产浏览 ==========
@@ -162,7 +169,7 @@ if page == "📚 资产浏览":
         products = ["全部"] + list(stats['by_product'].keys())
         filter_product = st.selectbox("产品筛选", products)
     with col2:
-        asset_types = ["全部"] + list(stats['by_type'].keys())
+        asset_types = ["全部"] + all_asset_types
         filter_type = st.selectbox("资产类型", asset_types)
     with col3:
         authors = ["全部"] + list(stats['by_author'].keys())
@@ -173,7 +180,7 @@ if page == "📚 资产浏览":
     if filter_product != "全部":
         filtered = [a for a in filtered if a.get('source', {}).get('product') == filter_product]
     if filter_type != "全部":
-        filtered = [a for a in filtered if a.get('asset_type', '爆款内容') == filter_type]
+        filtered = [a for a in filtered if a.get('asset_type', '未分类') == filter_type]
     if filter_author != "全部":
         filtered = [a for a in filtered if a.get('author') == filter_author]
     
@@ -184,11 +191,15 @@ if page == "📚 资产浏览":
         st.info("暂无匹配的资产")
     else:
         for asset in filtered:
-            with st.expander(f"**{asset.get('name', '未命名')}** - {asset.get('author', '未知')} ({asset.get('source', {}).get('product', '-')})"):
+            name = asset.get('name', '未命名')
+            author = asset.get('author', '未知')
+            product = asset.get('source', {}).get('product', '-')
+            atype = asset.get('asset_type', '未分类')
+            
+            with st.expander(f"**{name}** - {author} ({product} | {atype})"):
                 col1, col2 = st.columns([2, 1])
                 
                 with col1:
-                    st.markdown(f"**资产类型：** {asset.get('asset_type', '爆款内容')}")
                     st.markdown(f"**来源：** {asset.get('source', {}).get('campaign_name', '-')}")
                     st.markdown(f"**创建时间：** {asset.get('created_at', '-')}")
                     
@@ -196,200 +207,171 @@ if page == "📚 资产浏览":
                     tags_html = "".join([f'<span class="tag-badge">{t}</span>' for t in asset.get('tags', [])])
                     st.markdown(tags_html, unsafe_allow_html=True)
                     
-                    # 根据资产类型显示不同内容
-                    if asset.get('asset_type') == '爆款内容' or not asset.get('asset_type'):
-                        st.markdown("**爆款案例：**")
-                        for case in asset.get('top_cases', [])[:3]:
-                            views = case.get('views', 0)
-                            views_str = f"{views:,}" if views else "-"
-                            st.markdown(f"- {case.get('creator', '-')} | {case.get('platform', '-')} | 播放 {views_str}")
+                    # 显示备注
+                    if asset.get('notes'):
+                        st.markdown(f"**备注：** {asset.get('notes')}")
                     
-                    elif asset.get('asset_type') == '达人筛选':
-                        st.markdown("**筛选标准：**")
-                        criteria = asset.get('selection_criteria', {})
-                        if criteria:
-                            st.markdown(f"- 粉丝范围：{criteria.get('follower_range', '-')}")
-                            st.markdown(f"- CPM 要求：{criteria.get('cpm_requirement', '-')}")
-                            st.markdown(f"- 历史表现：{criteria.get('performance', '-')}")
-                    
-                    elif asset.get('asset_type') == '节点策略':
-                        st.markdown("**节点信息：**")
-                        node_info = asset.get('node_info', {})
-                        if node_info:
-                            st.markdown(f"- 节点类型：{node_info.get('node_type', '-')}")
-                            st.markdown(f"- 时间范围：{node_info.get('time_range', '-')}")
-                            st.markdown(f"- 推荐动作：{node_info.get('recommended_actions', '-')}")
+                    # 显示原始内容（折叠）
+                    with st.expander("📄 查看完整数据"):
+                        st.yaml(asset)
                 
                 with col2:
-                    if st.button("📋 查看详情", key=f"view_{asset.get('asset_id', asset.get('name'))}"):
-                        st.session_state['view_asset'] = asset
-                    
-                    # 下载 YAML
                     yaml_str = yaml.dump(asset, allow_unicode=True, sort_keys=False)
                     st.download_button(
                         label="📥 下载YAML",
                         data=yaml_str,
-                        file_name=f"{asset.get('name', 'asset')}.yaml",
+                        file_name=f"{name}.yaml",
                         mime="text/yaml",
-                        key=f"dl_{asset.get('asset_id', asset.get('name'))}"
+                        key=f"dl_{asset.get('asset_id', name)}"
                     )
 
-# ========== 页面：创建资产 ==========
-elif page == "➕ 创建资产":
-    st.title("➕ 创建资产")
-    st.markdown("填写以下信息，创建新的品牌资产")
+# ========== 页面：上传资产 ==========
+elif page == "➕ 上传资产":
+    st.title("➕ 上传资产")
     
-    with st.form("asset_form"):
-        st.subheader("📋 基本信息")
-        col1, col2 = st.columns(2)
-        with col1:
-            asset_name = st.text_input("资产名称 *", placeholder="如：暗黑风+神圣感")
-            author = st.text_input("上传者 *", placeholder="邮箱或姓名")
-            asset_type = st.selectbox("资产类型 *", [
-                "爆款内容",
-                "达人筛选",
-                "节点策略",
-                "创意模板",
-                "其他"
-            ])
-        with col2:
-            product = st.text_input("产品 *", placeholder="如：阴阳师")
-            campaign_name = st.text_input("活动名称 *", placeholder="如：阴阳师3月SP蚀月吸血姬")
-            campaign_id = st.text_input("一级单号（可选）", placeholder="如：273292")
+    tab1, tab2 = st.tabs(["📁 上传文件", "✏️ 快速创建"])
+    
+    with tab1:
+        st.markdown("""
+        ### 上传 YAML 文件
         
-        st.subheader("🏷️ 标签")
-        tags_input = st.text_input("标签（逗号分隔）*", placeholder="暗黑风, 神圣感, COS变装")
+        支持自由格式的 YAML 文件，只需包含以下基础字段：
+        - `name`: 资产名称
+        - `author`: 上传者
+        - `source.product`: 所属产品
+        - `tags`: 标签列表
+        - `asset_type`: 资产类型（可选，默认"其他"）
         
-        # 根据资产类型显示不同字段
-        if asset_type == "爆款内容":
-            st.subheader("🎬 内容结构")
-            structure_note = st.text_area("内容结构说明（每个阶段一行：阶段名|时长|目的）", 
-                placeholder="开场|0-5秒|建立反差\n转场|5-8秒|视觉冲击\n呈现|8-20秒|角色展示\n收尾|20-30秒|强化记忆",
-                height=100)
-            
-            st.subheader("🏆 爆款案例")
-            cases_note = st.text_area("案例（每行一个：创作者|平台|播放量|CPM）",
-                placeholder="icycream|抖音|649万|8.3\n赛博子|抖音|380万|29.7",
-                height=80)
+        其他字段可根据实际需要自由添加。
+        """)
         
-        elif asset_type == "达人筛选":
-            st.subheader("👤 筛选标准")
-            col1, col2 = st.columns(2)
-            with col1:
-                follower_range = st.text_input("粉丝范围", placeholder="1-10万")
-                cpm_req = st.text_input("CPM 要求", placeholder="<50")
-            with col2:
-                platform_pref = st.text_input("平台偏好", placeholder="抖音、B站")
-                performance = st.text_input("历史表现要求", placeholder="爆款率>50%")
+        uploaded_file = st.file_uploader("选择 YAML 文件", type=['yaml', 'yml'])
         
-        elif asset_type == "节点策略":
-            st.subheader("📅 节点信息")
-            col1, col2 = st.columns(2)
-            with col1:
-                node_type = st.selectbox("节点类型", ["版本更新", "节日活动", "周年庆", "联动活动", "其他"])
-                time_range = st.text_input("时间范围", placeholder="2026年3月")
-            with col2:
-                budget = st.text_input("预算范围", placeholder="50-100万")
-                target = st.text_input("目标", placeholder="曝光量5000万")
-            
-            actions = st.text_area("推荐动作（每行一个）", height=80)
-        
-        # 通用字段
-        st.subheader("📝 备注")
-        notes = st.text_area("补充说明", height=60)
-        
-        st.markdown("---")
-        submitted = st.form_submit_button("✅ 创建资产", type="primary")
-        
-        if submitted:
-            if not all([asset_name, author, product, campaign_name, tags_input]):
-                st.error("请填写所有必填项（带 * 的字段）")
-            else:
-                asset_data = {
-                    "name": asset_name,
-                    "author": author,
-                    "asset_type": asset_type,
-                    "source": {
-                        "campaign_name": campaign_name,
-                        "campaign_id": campaign_id,
-                        "product": product
-                    },
-                    "tags": [t.strip() for t in tags_input.split(',') if t.strip()],
-                    "notes": notes,
-                    "created_at": datetime.now().strftime('%Y-%m-%d'),
-                    "version": 1
-                }
+        if uploaded_file:
+            try:
+                content = uploaded_file.read().decode('utf-8')
+                asset_data = yaml.safe_load(content)
                 
-                # 根据资产类型添加特定字段
-                if asset_type == "爆款内容":
-                    # 解析结构
-                    structures = []
-                    for line in structure_note.split('\n'):
-                        if '|' in line:
-                            parts = line.split('|')
-                            if len(parts) >= 3:
-                                structures.append({
-                                    "phase": parts[0].strip(),
-                                    "duration": parts[1].strip(),
-                                    "purpose": parts[2].strip()
-                                })
-                    asset_data["content_structure"] = structures
-                    
-                    # 解析案例
-                    cases = []
-                    for line in cases_note.split('\n'):
-                        if '|' in line:
-                            parts = line.split('|')
-                            if len(parts) >= 2:
-                                views_str = parts[2].replace('万', '0000') if len(parts) > 2 else '0'
-                                try:
-                                    views = int(float(views_str))
-                                except:
-                                    views = 0
-                                cases.append({
-                                    "creator": parts[0].strip(),
-                                    "platform": parts[1].strip(),
-                                    "views": views,
-                                    "cpm": float(parts[3]) if len(parts) > 3 else 0
-                                })
-                    asset_data["top_cases"] = cases
+                st.success("✅ 文件解析成功！")
+                st.markdown("**预览：**")
+                st.yaml(asset_data)
                 
-                elif asset_type == "达人筛选":
-                    asset_data["selection_criteria"] = {
-                        "follower_range": follower_range,
-                        "cpm_requirement": cpm_req,
-                        "platform_preference": platform_pref,
-                        "performance": performance
-                    }
-                
-                elif asset_type == "节点策略":
-                    asset_data["node_info"] = {
-                        "node_type": node_type,
-                        "time_range": time_range,
-                        "budget": budget,
-                        "target": target,
-                        "recommended_actions": [a.strip() for a in actions.split('\n') if a.strip()]
-                    }
-                
-                # 显示生成的 YAML
-                yaml_content = yaml.dump(asset_data, allow_unicode=True, sort_keys=False)
-                st.success("✅ 资产数据生成成功！")
-                st.code(yaml_content, language="yaml")
-                
+                # 下载按钮
+                yaml_str = yaml.dump(asset_data, allow_unicode=True, sort_keys=False)
                 st.download_button(
-                    label="📥 下载 YAML 文件",
-                    data=yaml_content,
-                    file_name=f"ASSET-{datetime.now().strftime('%Y%m%d')}-new.yaml",
+                    label="📥 下载格式化的 YAML",
+                    data=yaml_str,
+                    file_name=f"ASSET-{datetime.now().strftime('%Y%m%d')}-{asset_data.get('name', 'new')}.yaml",
                     mime="text/yaml"
                 )
                 
-                st.info("💡 下载后发送给管理员（或通过 OpenClaw Agent）上传到资产库")
+                st.info("💡 下载后发送给管理员或通过 OpenClaw Agent 上传到资产库")
+                
+            except Exception as e:
+                st.error(f"文件解析失败: {str(e)}")
+        
+        st.markdown("---")
+        st.markdown("### 📋 YAML 模板示例")
+        st.code("""
+name: 暗黑风+神圣感
+author: yourname@corp.netease.com
+asset_type: 爆款内容
+source:
+  campaign_name: 阴阳师3月SP蚀月吸血姬
+  campaign_id: "273292"
+  product: 阴阳师
+  period: "2026年3月"
+tags:
+  - 暗黑风
+  - 神圣感
+  - COS变装
+
+# 以下内容根据资产类型自由定义
+character_traits:
+  - 兼具黑暗与光明双重属性
+  - 有救赎/牺牲背景故事
+
+content_structure:
+  - phase: 开场
+    duration: "0-5秒"
+    purpose: 建立反差
+
+top_cases:
+  - creator: icycream
+    platform: 抖音
+    views: 6490000
+    cpm: 8.3
+
+notes: 适用于有翅膀/羽毛/荆棘等元素的角色
+""", language="yaml")
+    
+    with tab2:
+        st.markdown("### 快速创建资产")
+        
+        with st.form("quick_create"):
+            col1, col2 = st.columns(2)
+            with col1:
+                asset_name = st.text_input("资产名称 *", placeholder="如：暗黑风+神圣感")
+                author = st.text_input("上传者 *", placeholder="邮箱或姓名")
+            with col2:
+                product = st.text_input("产品 *", placeholder="如：阴阳师")
+                # 支持自定义资产类型
+                preset_type = st.selectbox("资产类型", DEFAULT_ASSET_TYPES)
+                custom_type = st.text_input("自定义类型（不选预设时填写）", placeholder="留空则使用预设")
+            
+            campaign_name = st.text_input("活动名称", placeholder="如：阴阳师3月SP蚀月吸血姬")
+            tags_input = st.text_input("标签（逗号分隔）", placeholder="暗黑风, 神圣感")
+            
+            # 自由内容
+            custom_content = st.text_area(
+                "其他内容（YAML格式）",
+                placeholder="character_traits:\n  - 特征1\n  - 特征2\n\nnotes: 备注信息",
+                height=150
+            )
+            
+            submitted = st.form_submit_button("✅ 生成资产")
+            
+            if submitted:
+                if not all([asset_name, author, product]):
+                    st.error("请填写必填项（带 * 的字段）")
+                else:
+                    asset_data = {
+                        "name": asset_name,
+                        "author": author,
+                        "asset_type": custom_type if custom_type else preset_type,
+                        "source": {
+                            "campaign_name": campaign_name,
+                            "product": product
+                        },
+                        "tags": [t.strip() for t in tags_input.split(',') if t.strip()],
+                        "created_at": datetime.now().strftime('%Y-%m-%d')
+                    }
+                    
+                    # 合并自定义内容
+                    if custom_content:
+                        try:
+                            custom_data = yaml.safe_load(custom_content)
+                            if isinstance(custom_data, dict):
+                                asset_data.update(custom_data)
+                        except:
+                            pass
+                    
+                    yaml_str = yaml.dump(asset_data, allow_unicode=True, sort_keys=False)
+                    st.success("✅ 资产生成成功！")
+                    st.code(yaml_str, language="yaml")
+                    
+                    st.download_button(
+                        label="📥 下载 YAML 文件",
+                        data=yaml_str,
+                        file_name=f"ASSET-{datetime.now().strftime('%Y%m%d')}-{asset_name}.yaml",
+                        mime="text/yaml"
+                    )
 
 # ========== 页面：搜索资产 ==========
 elif page == "🔍 搜索资产":
     st.title("🔍 搜索资产")
     
-    search_type = st.radio("搜索方式", ["关键词搜索", "标签匹配"])
+    search_type = st.radio("搜索方式", ["关键词搜索", "标签匹配", "按产品筛选"])
     
     if search_type == "关键词搜索":
         keyword = st.text_input("输入关键词", placeholder="如：暗黑、阴阳师、达人筛选")
@@ -397,19 +379,30 @@ elif page == "🔍 搜索资产":
             results = [a for a in assets if 
                       keyword.lower() in a.get('name', '').lower() or
                       keyword.lower() in str(a.get('tags', [])).lower() or
-                      keyword.lower() in a.get('source', {}).get('product', '').lower()]
+                      keyword.lower() in a.get('source', {}).get('product', '').lower() or
+                      keyword.lower() in str(a).lower()]
             st.markdown(f"**找到 {len(results)} 个结果**")
             for asset in results:
                 st.markdown(f"- **{asset.get('name')}** ({asset.get('source', {}).get('product', '-')})")
     
-    else:
+    elif search_type == "标签匹配":
         all_tags = list(stats['by_tag'].keys())
         selected_tags = st.multiselect("选择标签", all_tags)
         if selected_tags:
             results = [a for a in assets if set(selected_tags) & set(a.get('tags', []))]
             st.markdown(f"**找到 {len(results)} 个结果**")
             for asset in results:
-                st.markdown(f"- **{asset.get('name')}** ({asset.get('source', {}).get('product', '-')})")
+                common_tags = set(selected_tags) & set(asset.get('tags', []))
+                st.markdown(f"- **{asset.get('name')}** ({asset.get('source', {}).get('product', '-')}) - 匹配标签: {', '.join(common_tags)}")
+    
+    else:
+        products = list(stats['by_product'].keys())
+        selected_product = st.selectbox("选择产品", products)
+        if selected_product:
+            results = [a for a in assets if a.get('source', {}).get('product') == selected_product]
+            st.markdown(f"**找到 {len(results)} 个结果**")
+            for asset in results:
+                st.markdown(f"- **{asset.get('name')}** ({asset.get('asset_type', '-')})")
 
 # ========== 页面：统计面板 ==========
 elif page == "📊 统计面板":
@@ -469,109 +462,129 @@ elif page == "🔌 API集成":
     st.markdown("""
     ### 如何让其他 Agent 接入资产库
     
-    品牌资产库通过 GitHub 托管，任何可以访问 GitHub API 的系统都可以读取数据。
+    品牌资产库通过 GitHub 托管，任何系统都可以通过公开 API 读取数据。
     """)
     
     st.subheader("1️⃣ 获取资产列表（JSON）")
     st.code("""
 import requests
 
-# 公开仓库可直接访问
+# 公开仓库可直接访问（无需 Token）
 url = "https://raw.githubusercontent.com/lingzhi12345-hue/brand-asset-library/main/assets.json"
 response = requests.get(url)
 assets = response.json()
 
 # 按产品筛选
 yinshi_assets = [a for a in assets if a.get('source', {}).get('product') == '阴阳师']
+
+# 按标签筛选
+dark_style = [a for a in assets if '暗黑风' in a.get('tags', [])]
 """, language="python")
     
-    st.subheader("2️⃣ 获取单个资产详情")
+    st.subheader("2️⃣ 让 OpenClaw Agent 使用资产库")
     st.code("""
-# 获取特定资产
-asset_name = "暗黑风+神圣感"
-url = f"https://raw.githubusercontent.com/lingzhi12345-hue/brand-asset-library/main/assets/{asset_name}.yaml"
-response = requests.get(url)
-import yaml
-asset = yaml.safe_load(response.text)
-""", language="python")
+# 用户指令示例
+"搜索阴阳师的爆款内容资产"
+"查看萤火突击相关的达人筛选标准"
+"帮我生成一个资产：xxx"
+""", language="text")
     
     st.markdown("---")
-    st.subheader("📡 当前 API 地址")
+    st.subheader("📡 API 地址")
     st.info(f"""
-    - 资产列表: `https://raw.githubusercontent.com/lingzhi12345-hue/brand-asset-library/main/assets.json`
-    - 单个资产: `https://raw.githubusercontent.com/lingzhi12345-hue/brand-asset-library/main/assets/{{资产名}}.yaml`
+    - **资产列表**: `https://raw.githubusercontent.com/lingzhi12345-hue/brand-asset-library/main/assets.json`
+    - **单个资产**: `https://raw.githubusercontent.com/lingzhi12345-hue/brand-asset-library/main/assets/{{资产ID}}.yaml`
     """)
-    
-    st.markdown("---")
-    st.subheader("📤 导出当前资产列表")
-    if st.button("导出 assets.json"):
-        json_str = json.dumps(assets, ensure_ascii=False, indent=2)
-        st.download_button(
-            label="下载 assets.json",
-            data=json_str,
-            file_name="assets.json",
-            mime="application/json"
-        )
 
 # ========== 页面：多人协作 ==========
 elif page == "👥 多人协作":
     st.title("👥 多人协作指南")
     
     st.markdown("""
-    ### 如何让团队成员共同使用资产库
-    
-    品牌资产库支持多人协作，每个团队成员都可以：
-    - 📖 **浏览** 所有资产
-    - 🔍 **搜索** 按产品、标签筛选
-    - ➕ **创建** 新资产（需管理员审核上传）
-    
-    ---
-    
     ### 协作方式
     
-    #### 方式一：通过 OpenClaw Agent
+    #### 📖 浏览资产（所有人可用）
     
-    团队成员如果有自己的 OpenClaw Agent，可以直接让 Agent：
-    1. 读取资产库：`访问品牌资产库，搜索阴阳师相关的资产`
-    2. 创建资产：`生成一个资产：xxx，我来审核后上传`
+    方式一：直接访问本应用
+    - URL: Streamlit Cloud 部署地址
     
-    #### 方式二：通过 Streamlit 界面
-    
-    1. 访问本应用
-    2. 创建资产 → 下载 YAML 文件
-    3. 发送给管理员上传
-    
-    #### 方式三：直接 GitHub 协作
-    
-    有 GitHub 权限的成员可以直接：
-    1. Fork 仓库
-    2. 添加资产文件到 `assets/` 目录
-    3. 提交 PR
+    方式二：通过 OpenClaw Agent
+    - 指令：`搜索阴阳师的资产`
+    - Agent 会自动从 API 获取并返回结果
     
     ---
     
-    ### 按产品分工示例
+    #### ➕ 上传资产
     
-    | 产品 | 负责人 | 可调用资产 |
-    |------|--------|-----------|
-    | 阴阳师 | 同事A、B | 阴阳师相关资产 |
-    | 萤火突击 | 同事A、C | 萤火突击相关资产 |
-    | 光遇 | 同事D | 光遇相关资产 |
+    **方式一：通过 OpenClaw Agent（推荐）**
+    
+    1. 让 Agent 生成资产 YAML
+    2. Agent 自动上传到资产库
+    3. 无需 GitHub 权限
+    
+    **方式二：通过本应用**
+    
+    1. 访问"上传资产"页面
+    2. 填写信息或上传 YAML 文件
+    3. 下载生成的 YAML
+    4. 发送给管理员上传
     
     ---
+    
+    ### 🔐 安全说明
+    
+    - **读取权限**：公开的，任何人都可以读取资产库
+    - **写入权限**：仅管理员和授权的 OpenClaw Agent 可以上传
+    - **无需分享 GitHub Token**
+    
+    ---
+    
+    ### 📋 给同事的配置信息
+    
+    把以下信息发给同事，让他们的 Agent 配置：
+    
+    ```
+    品牌资产库 API 地址：
+    https://raw.githubusercontent.com/lingzhi12345-hue/brand-asset-library/main/assets.json
+    
+    使用方式：
+    1. 让 Agent 读取这个 JSON 文件
+    2. 按 source.product 筛选产品
+    3. 按 tags 筛选标签
+    4. 按 asset_type 筛选资产类型
+    
+    上传资产：
+    发送给 lingzhi12345-hue 或让 OpenClaw Agent 帮忙上传
+    ```
     """)
     
-    st.subheader("🔧 配置新成员")
-    st.markdown("""
-    如果团队成员有自己的 OpenClaw Agent，需要：
+    st.markdown("---")
     
-    1. **提供 GitHub 仓库地址**：`lingzhi12345-hue/brand-asset-library`
-    2. **提供资产 JSON 地址**：`https://raw.githubusercontent.com/lingzhi12345-hue/brand-asset-library/main/assets.json`
-    3. **上传权限**：需要 GitHub Token（联系管理员）
-    
-    Agent 只需知道这些信息，就可以读取资产库内容。
-    """)
+    # 生成配置卡片
+    st.subheader("📋 配置信息卡片")
+    st.code(f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    品牌资产共享库 - 配置信息
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📌 资产库地址：
+https://raw.githubusercontent.com/lingzhi12345-hue/brand-asset-library/main/assets.json
+
+📌 使用方法（给 OpenClaw Agent 的指令）：
+• "搜索阴阳师的资产"
+• "查找爆款内容类型的资产"
+• "查看暗黑风标签的资产"
+
+📌 上传资产：
+• 让 Agent 生成 YAML 文件
+• 发送给管理员或让 Agent 上传
+
+📌 资产类型：
+{', '.join(DEFAULT_ASSET_TYPES)}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+""", language="text")
 
 # ========== 页脚 ==========
 st.markdown("---")
-st.markdown("<div style='text-align: center; color: #666; padding: 20px;'>品牌资产共享库 v2.0 | 支持多人协作 | 按 product 分类</div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align: center; color: #666; padding: 20px;'>品牌资产共享库 v2.1 | 自由上传 | 多人协作</div>", unsafe_allow_html=True)
