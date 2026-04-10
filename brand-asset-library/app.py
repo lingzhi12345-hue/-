@@ -52,7 +52,7 @@ PRODUCT_CONFIG = {
     "率土之滨": {"password": "58ho9atd", "admin": "linxiao03@corp.netease.com"},
     "光遇": {"password": "0mvn84pq", "admin": "huanglingzhi02@corp.netease.com"},
     "萤火突击": {"password": "tkvcnczy", "admin": "huangsuixin@corp.netease.com"},
-    "阴阳师": {"password": "yysyyds", "admin": "huanglingzhi02@corp.netease.com"},
+    "阴阳师": {"password": "6t8ktxlu", "admin": "huanglingzhi02@corp.netease.com"},
     "世界之外": {"password": "vke6xtnk", "admin": "huangsuixin@corp.netease.com"},
     "实况足球手游": {"password": "216ewoxn", "admin": "jiangjinpeng02@corp.netease.com"},
     "巅峰极速": {"password": "u3capmir", "admin": "huanglingzhi02@corp.netease.com"}
@@ -159,7 +159,7 @@ stats = get_statistics(assets)
 github_config = get_github_config()
 
 # ========== 侧边栏 ==========
-st.sidebar.title("🎨 内推广州*品牌资产库")
+st.sidebar.title("🎨 品牌资产共享库")
 st.sidebar.markdown(f"**资产总数: {len(assets)}**")
 
 if github_config:
@@ -295,35 +295,48 @@ if page == "📚 资产浏览":
                 st.markdown(f"**来源：** {asset.get('source', {}).get('campaign_name', '-')}")
                 st.markdown(f"**创建时间：** {asset.get('created_at', '-')}")
                 
+                # 原文件链接
+                original_file = asset.get('original_file', {})
+                if original_file:
+                    file_url = original_file.get('url', '')
+                    file_desc = original_file.get('description', '查看原文件')
+                    if file_url:
+                        st.markdown(f"**原文件：** [{file_desc}]({file_url})")
+                
                 st.markdown("**标签：**")
                 tags_html = "".join([f'<span class="tag-badge">{t}</span>' for t in asset.get('tags', [])])
                 st.markdown(tags_html, unsafe_allow_html=True)
                 
-                if asset.get('notes'):
-                    st.markdown(f"**备注：** {asset.get('notes')}")
+                # 摘要
+                if asset.get('summary'):
+                    st.markdown("**摘要：**")
+                    st.markdown(asset.get('summary'))
                 
                 with st.expander("📄 查看完整数据"):
                     st.code(yaml.dump(asset, allow_unicode=True, sort_keys=False), language="yaml")
 
-# ========== 页面：搜索资产（严格隔离） ==========
+# ========== 页面：搜索资产（所有人可搜索，区分权限） ==========
 elif page == "🔍 搜索资产":
     st.title("🔍 搜索资产")
+    st.markdown("*搜索结果将根据您的权限展示不同详情*")
     
-    if not user_email:
-        st.warning("⚠️ 请先在侧边栏登录")
-        st.stop()
-    
+    # 所有人都可以搜索，不需要登录
     search_type = st.radio("搜索方式", ["关键词搜索", "标签匹配"])
-    accessible = get_accessible_products(user_email)
+    
+    # 获取当前用户的可访问产品（如果有登录）
+    if user_email:
+        accessible = get_accessible_products(user_email)
+    else:
+        accessible = set()
     
     if search_type == "关键词搜索":
         keyword = st.text_input("输入关键词", placeholder="如：暗黑、阴阳师")
         if keyword:
-            # 只搜索可访问的产品
+            # 搜索所有资产
             results = [a for a in assets if 
-                      a.get('source', {}).get('product') in accessible and
-                      (keyword.lower() in a.get('name', '').lower() or
-                       keyword.lower() in str(a.get('tags', [])).lower())]
+                      keyword.lower() in a.get('name', '').lower() or
+                      keyword.lower() in str(a.get('tags', [])).lower() or
+                      keyword.lower() in a.get('source', {}).get('product', '').lower()]
             
             st.markdown(f"**找到 {len(results)} 个结果**")
             st.markdown("---")
@@ -332,26 +345,78 @@ elif page == "🔍 搜索资产":
                 name = asset.get('name', '未命名')
                 product = asset.get('source', {}).get('product', '-')
                 atype = asset.get('asset_type', '未分类')
+                has_permission = product in accessible
                 
-                with st.expander(f"**{name}** ({product} | {atype})"):
-                    st.markdown(f"**来源：** {asset.get('source', {}).get('campaign_name', '-')}")
-                    st.markdown(f"**创建时间：** {asset.get('created_at', '-')}")
+                if has_permission:
+                    # 有权限：显示完整详情
+                    with st.expander(f"✅ **{name}** ({product} | {atype})"):
+                        st.markdown(f"**来源：** {asset.get('source', {}).get('campaign_name', '-')}")
+                        st.markdown(f"**创建时间：** {asset.get('created_at', '-')}")
+                        
+                        # 原文件链接
+                        original_file = asset.get('original_file', {})
+                        if original_file:
+                            file_url = original_file.get('url', '')
+                            file_desc = original_file.get('description', '查看原文件')
+                            if file_url:
+                                st.markdown(f"**原文件：** [{file_desc}]({file_url})")
+                        
+                        # 摘要
+                        if asset.get('summary'):
+                            st.markdown("**摘要：**")
+                            st.markdown(asset.get('summary'))
+                        
+                        with st.expander("📄 查看完整数据"):
+                            st.code(yaml.dump(asset, allow_unicode=True, sort_keys=False), language="yaml")
+                else:
+                    # 无权限：只显示标题 + 提示管理员
+                    with st.expander(f"🔒 **{name}** ({product} | {atype})"):
+                        st.warning(f"⚠️ 您没有 **{product}** 的访问权限")
+                        if product in PRODUCT_CONFIG:
+                            admin_email = PRODUCT_CONFIG[product]['admin']
+                            st.markdown(f"**如需了解详情，请联系产品管理员：** `{admin_email}`")
     
     else:
         all_tags = list(stats['by_tag'].keys())
         selected_tags = st.multiselect("选择标签", all_tags)
         if selected_tags:
-            results = [a for a in assets if 
-                      a.get('source', {}).get('product') in accessible and
-                      set(selected_tags) & set(a.get('tags', []))]
+            # 搜索所有资产
+            results = [a for a in assets if set(selected_tags) & set(a.get('tags', []))]
+            
             st.markdown(f"**找到 {len(results)} 个结果**")
+            st.markdown("---")
             
             for asset in results:
                 name = asset.get('name', '未命名')
                 product = asset.get('source', {}).get('product', '-')
+                atype = asset.get('asset_type', '未分类')
+                has_permission = product in accessible
                 
-                with st.expander(f"**{name}** ({product})"):
-                    st.markdown(f"**创建时间：** {asset.get('created_at', '-')}")
+                if has_permission:
+                    # 有权限：显示完整详情
+                    with st.expander(f"✅ **{name}** ({product} | {atype})"):
+                        st.markdown(f"**来源：** {asset.get('source', {}).get('campaign_name', '-')}")
+                        st.markdown(f"**创建时间：** {asset.get('created_at', '-')}")
+                        
+                        # 原文件链接
+                        original_file = asset.get('original_file', {})
+                        if original_file:
+                            file_url = original_file.get('url', '')
+                            file_desc = original_file.get('description', '查看原文件')
+                            if file_url:
+                                st.markdown(f"**原文件：** [{file_desc}]({file_url})")
+                        
+                        # 摘要
+                        if asset.get('summary'):
+                            st.markdown("**摘要：**")
+                            st.markdown(asset.get('summary'))
+                else:
+                    # 无权限：只显示标题 + 提示管理员
+                    with st.expander(f"🔒 **{name}** ({product} | {atype})"):
+                        st.warning(f"⚠️ 您没有 **{product}** 的访问权限")
+                        if product in PRODUCT_CONFIG:
+                            admin_email = PRODUCT_CONFIG[product]['admin']
+                            st.markdown(f"**如需了解详情，请联系产品管理员：** `{admin_email}`")
 
 # ========== 页面：上传资产 ==========
 elif page == "➕ 上传资产":
@@ -384,21 +449,56 @@ elif page == "➕ 上传资产":
     with st.form("asset_form"):
         asset_name = st.text_input("资产名称 *")
         campaign_name = st.text_input("活动名称")
+        
+        # 原文件链接
+        st.markdown("**原文件链接（可选）：**")
+        col_url, col_desc = st.columns(2)
+        with col_url:
+            original_file_url = st.text_input("文件链接", placeholder="https://xxx.com/file.html")
+        with col_desc:
+            original_file_desc = st.text_input("链接描述", placeholder="如：完整版HTML报告")
+        
+        # 摘要（固定格式）
+        st.markdown("**摘要 *（请按以下格式填写）：**")
+        st.markdown("""
+        ```
+        创新性：xxx
+        复用性：xxx
+        避坑点：xxx
+        效果：xxx
+        ```
+        """)
+        summary = st.text_area(
+            "摘要内容", 
+            placeholder="创新性：首次尝试xxx玩法，效果显著\n复用性：可复用于xxx场景\n避坑点：需注意xxx\n效果：CPM降低xx%，播放量提升xx%",
+            height=100
+        )
+        
         tags_input = st.text_input("标签（逗号分隔）")
-        custom_content = st.text_area("其他内容（YAML格式）", height=150)
+        custom_content = st.text_area("其他内容（YAML格式）", height=100)
         
         if st.form_submit_button("✅ 生成资产"):
             if not asset_name:
                 st.error("请填写资产名称")
+            elif not summary:
+                st.error("请填写摘要")
             else:
                 asset_data = {
                     "name": asset_name,
                     "asset_type": asset_type,
                     "author": user_email,
                     "source": {"campaign_name": campaign_name, "product": product},
+                    "summary": summary,
                     "tags": [t.strip() for t in tags_input.split(',') if t.strip()],
                     "created_at": datetime.now().strftime('%Y-%m-%d')
                 }
+                
+                # 添加原文件链接
+                if original_file_url:
+                    asset_data["original_file"] = {
+                        "url": original_file_url,
+                        "description": original_file_desc or "查看原文件"
+                    }
                 
                 if custom_content:
                     try:
@@ -451,6 +551,12 @@ elif page == "👥 权限说明":
     ### 🔐 产品隔离
     
     每个产品资产库独立，需要输入产品密码才能查看。
+    
+    ### 👑 超级管理员
+    
+    可访问所有产品资产，无需输入产品密码：
+    - `guoyajun@corp.netease.com`
+    - `huanglingzhi02@corp.netease.com`
     
     ### 🔑 产品管理员
     
