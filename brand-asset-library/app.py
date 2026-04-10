@@ -52,7 +52,7 @@ PRODUCT_CONFIG = {
     "率土之滨": {"password": "58ho9atd", "admin": "linxiao03@corp.netease.com"},
     "光遇": {"password": "0mvn84pq", "admin": "huanglingzhi02@corp.netease.com"},
     "萤火突击": {"password": "tkvcnczy", "admin": "huangsuixin@corp.netease.com"},
-    "阴阳师": {"password": "6t8ktxlu", "admin": "huanglingzhi02@corp.netease.com"},
+    "阴阳师": {"password": "yysyyds", "admin": "huanglingzhi02@corp.netease.com"},
     "世界之外": {"password": "vke6xtnk", "admin": "huangsuixin@corp.netease.com"},
     "实况足球手游": {"password": "216ewoxn", "admin": "jiangjinpeng02@corp.netease.com"},
     "巅峰极速": {"password": "u3capmir", "admin": "huanglingzhi02@corp.netease.com"}
@@ -277,7 +277,7 @@ stats = get_statistics(assets)
 github_config = get_github_config()
 
 # ========== 侧边栏 ==========
-st.sidebar.title("🎨 品牌资产共享库")
+st.sidebar.title("🎨 内推广州品牌资产库")
 st.sidebar.markdown(f"**资产总数: {len(assets)}**")
 
 if github_config:
@@ -660,12 +660,6 @@ elif page == "👥 权限说明":
     ### 🔐 产品隔离
     
     每个产品资产库独立，需要输入产品密码才能查看。
-    
-    ### 👑 超级管理员
-    
-    可访问所有产品资产，无需输入产品密码：
-    - `guoyajun@corp.netease.com`
-    - `huanglingzhi02@corp.netease.com`
     
     ### 🔑 产品管理员
     
