@@ -1,6 +1,6 @@
 """
-品牌资产共享库 - Streamlit 应用 v3.2
-严格数据隔离： 未登录/未授权不显示任何资产
+品牌资产共享库 - Streamlit 应用 v3.4
+支持原文件直接下载
 """
 
 import streamlit as st
@@ -73,6 +73,124 @@ def get_github_config():
             'branch': st.secrets['github'].get('branch', 'main')
         }
     return None
+
+# ========== 文件下载功能 ==========
+@st.cache_data(ttl=3600)
+def get_file_from_github(file_path: str) -> Optional[bytes]:
+    """从GitHub获取文件内容"""
+    config = get_github_config()
+    if not config:
+        return None
+    
+    try:
+        url = f"https://api.github.com/repos/{config['repo']}/contents/{file_path}"
+        resp = requests.get(url, headers={
+            "Authorization": f"token {config['token']}",
+            "Accept": "application/vnd.github.v3+json"
+        }, timeout=30)
+        
+        if resp.status_code == 200:
+            content = base64.b64decode(resp.json()['content'])
+            return content
+    except:
+        pass
+    return None
+
+def get_file_mime_type(filename: str) -> str:
+    """根据文件扩展名返回MIME类型"""
+    ext = Path(filename).suffix.lower()
+    mime_types = {
+        '.html': 'text/html',
+        '.htm': 'text/html',
+        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        '.xls': 'application/vnd.ms-excel',
+        '.pdf': 'application/pdf',
+        '.doc': 'application/msword',
+        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        '.ppt': 'application/vnd.ms-powerpoint',
+        '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        '.txt': 'text/plain',
+        '.csv': 'text/csv',
+        '.json': 'application/json',
+        '.yaml': 'text/yaml',
+        '.yml': 'text/yaml',
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.gif': 'image/gif',
+    }
+    return mime_types.get(ext, 'application/octet-stream')
+
+def render_file_download(original_file: dict, asset_name: str):
+    """渲染文件下载按钮"""
+    if not original_file:
+        return
+    
+    file_url = original_file.get('url', '')
+    file_desc = original_file.get('description', '查看原文件')
+    
+    if not file_url:
+        return
+    
+    # 提取文件名
+    if 'github.com' in file_url and '/blob/' in file_url:
+        # GitHub网页链接，提取文件路径
+        # https://github.com/xxx/xxx/blob/main/assets/xxx.xlsx
+        parts = file_url.split('/blob/main/')
+        if len(parts) > 1:
+            file_path = parts[1]
+            filename = Path(file_path).name
+            
+            # 获取文件内容
+            with st.spinner("正在加载文件..."):
+                file_content = get_file_from_github(file_path)
+            
+            if file_content:
+                # 根据文件类型显示不同选项
+                ext = Path(filename).suffix.lower()
+                
+                if ext in ['.html', '.htm']:
+                    # HTML文件：提供查看和下载两个选项
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.download_button(
+                            label=f"📥 下载 {filename}",
+                            data=file_content,
+                            file_name=filename,
+                            mime='text/html',
+                            key=f"dl_{asset_name}_{filename}"
+                        )
+                    with col2:
+                        if st.button(f"👁️ 在线预览", key=f"preview_{asset_name}_{filename}"):
+                            st.session_state[f'show_preview_{asset_name}'] = True
+                
+                elif ext in ['.xlsx', '.xls']:
+                    # Excel文件：提供下载按钮
+                    st.download_button(
+                        label=f"📥 下载 {filename}",
+                        data=file_content,
+                        file_name=filename,
+                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                        key=f"dl_{asset_name}_{filename}"
+                    )
+                
+                else:
+                    # 其他文件：提供下载按钮
+                    mime_type = get_file_mime_type(filename)
+                    st.download_button(
+                        label=f"📥 下载 {filename}",
+                        data=file_content,
+                        file_name=filename,
+                        mime=mime_type,
+                        key=f"dl_{asset_name}_{filename}"
+                    )
+            else:
+                st.warning(f"⚠️ 无法加载文件，请[点击这里查看]({file_url})")
+        else:
+            st.markdown(f"**原文件：** [{file_desc}]({file_url})")
+    else:
+        # 非GitHub链接，直接显示链接
+        st.markdown(f"**原文件：** [{file_desc}]({file_url})")
 
 # ========== 资产加载 ==========
 @st.cache_data(ttl=300)
@@ -175,7 +293,6 @@ is_verified_admin = False
 
 if 'user_email' not in st.session_state:
     st.sidebar.markdown("### 🔐 身份验证")
-    st.sidebar.markdown("请先登录以访问资产库")
     email_input = st.sidebar.text_input("邮箱", placeholder="xxx@corp.netease.com", key="email_input")
     
     if email_input:
@@ -256,7 +373,6 @@ if 'current_product' in st.session_state and user_email:
 if page == "📚 资产浏览":
     st.title("📚 资产浏览")
     
-    # 必须登录才能查看
     if not user_email:
         st.warning("⚠️ 请先在侧边栏登录以查看资产")
         st.markdown("### 🔐 登录步骤")
@@ -265,7 +381,6 @@ if page == "📚 资产浏览":
         st.markdown("3. 登录后点击产品导航获取访问权限")
         st.stop()
     
-    # 必须选择产品才能查看
     if 'current_product' not in st.session_state:
         st.info("👆 请在侧边栏点击产品名称以查看资产")
         st.stop()
@@ -277,7 +392,6 @@ if page == "📚 资产浏览":
         st.warning(f"⚠️ 您尚未获得 {current_product} 的访问权限")
         st.stop()
     
-    # 只显示当前产品的资产
     filtered = [a for a in assets if a.get('source', {}).get('product') == current_product]
     
     st.markdown(f"**{current_product} - 共 {len(filtered)} 个资产**")
@@ -295,13 +409,11 @@ if page == "📚 资产浏览":
                 st.markdown(f"**来源：** {asset.get('source', {}).get('campaign_name', '-')}")
                 st.markdown(f"**创建时间：** {asset.get('created_at', '-')}")
                 
-                # 原文件链接
+                # 原文件下载
                 original_file = asset.get('original_file', {})
                 if original_file:
-                    file_url = original_file.get('url', '')
-                    file_desc = original_file.get('description', '查看原文件')
-                    if file_url:
-                        st.markdown(f"**原文件：** [{file_desc}]({file_url})")
+                    st.markdown("**原文件：**")
+                    render_file_download(original_file, name)
                 
                 st.markdown("**标签：**")
                 tags_html = "".join([f'<span class="tag-badge">{t}</span>' for t in asset.get('tags', [])])
@@ -312,6 +424,21 @@ if page == "📚 资产浏览":
                     st.markdown("**摘要：**")
                     st.markdown(asset.get('summary'))
                 
+                # HTML预览
+                if st.session_state.get(f'show_preview_{name}'):
+                    original_file = asset.get('original_file', {})
+                    if original_file:
+                        file_url = original_file.get('url', '')
+                        if 'github.com' in file_url and '/blob/' in file_url:
+                            parts = file_url.split('/blob/main/')
+                            if len(parts) > 1:
+                                file_path = parts[1]
+                                file_content = get_file_from_github(file_path)
+                                if file_content:
+                                    st.markdown("---")
+                                    st.markdown("**HTML预览：**")
+                                    st.components.v1.html(file_content.decode('utf-8'), height=600, scrolling=True)
+                
                 with st.expander("📄 查看完整数据"):
                     st.code(yaml.dump(asset, allow_unicode=True, sort_keys=False), language="yaml")
 
@@ -320,10 +447,8 @@ elif page == "🔍 搜索资产":
     st.title("🔍 搜索资产")
     st.markdown("*搜索结果将根据您的权限展示不同详情*")
     
-    # 所有人都可以搜索，不需要登录
     search_type = st.radio("搜索方式", ["关键词搜索", "标签匹配"])
     
-    # 获取当前用户的可访问产品（如果有登录）
     if user_email:
         accessible = get_accessible_products(user_email)
     else:
@@ -332,7 +457,6 @@ elif page == "🔍 搜索资产":
     if search_type == "关键词搜索":
         keyword = st.text_input("输入关键词", placeholder="如：暗黑、阴阳师")
         if keyword:
-            # 搜索所有资产
             results = [a for a in assets if 
                       keyword.lower() in a.get('name', '').lower() or
                       keyword.lower() in str(a.get('tags', [])).lower() or
@@ -348,20 +472,15 @@ elif page == "🔍 搜索资产":
                 has_permission = product in accessible
                 
                 if has_permission:
-                    # 有权限：显示完整详情
                     with st.expander(f"✅ **{name}** ({product} | {atype})"):
                         st.markdown(f"**来源：** {asset.get('source', {}).get('campaign_name', '-')}")
                         st.markdown(f"**创建时间：** {asset.get('created_at', '-')}")
                         
-                        # 原文件链接
                         original_file = asset.get('original_file', {})
                         if original_file:
-                            file_url = original_file.get('url', '')
-                            file_desc = original_file.get('description', '查看原文件')
-                            if file_url:
-                                st.markdown(f"**原文件：** [{file_desc}]({file_url})")
+                            st.markdown("**原文件：**")
+                            render_file_download(original_file, name)
                         
-                        # 摘要
                         if asset.get('summary'):
                             st.markdown("**摘要：**")
                             st.markdown(asset.get('summary'))
@@ -369,7 +488,6 @@ elif page == "🔍 搜索资产":
                         with st.expander("📄 查看完整数据"):
                             st.code(yaml.dump(asset, allow_unicode=True, sort_keys=False), language="yaml")
                 else:
-                    # 无权限：只显示标题 + 提示管理员
                     with st.expander(f"🔒 **{name}** ({product} | {atype})"):
                         st.warning(f"⚠️ 您没有 **{product}** 的访问权限")
                         if product in PRODUCT_CONFIG:
@@ -380,7 +498,6 @@ elif page == "🔍 搜索资产":
         all_tags = list(stats['by_tag'].keys())
         selected_tags = st.multiselect("选择标签", all_tags)
         if selected_tags:
-            # 搜索所有资产
             results = [a for a in assets if set(selected_tags) & set(a.get('tags', []))]
             
             st.markdown(f"**找到 {len(results)} 个结果**")
@@ -393,25 +510,19 @@ elif page == "🔍 搜索资产":
                 has_permission = product in accessible
                 
                 if has_permission:
-                    # 有权限：显示完整详情
                     with st.expander(f"✅ **{name}** ({product} | {atype})"):
                         st.markdown(f"**来源：** {asset.get('source', {}).get('campaign_name', '-')}")
                         st.markdown(f"**创建时间：** {asset.get('created_at', '-')}")
                         
-                        # 原文件链接
                         original_file = asset.get('original_file', {})
                         if original_file:
-                            file_url = original_file.get('url', '')
-                            file_desc = original_file.get('description', '查看原文件')
-                            if file_url:
-                                st.markdown(f"**原文件：** [{file_desc}]({file_url})")
+                            st.markdown("**原文件：**")
+                            render_file_download(original_file, name)
                         
-                        # 摘要
                         if asset.get('summary'):
                             st.markdown("**摘要：**")
                             st.markdown(asset.get('summary'))
                 else:
-                    # 无权限：只显示标题 + 提示管理员
                     with st.expander(f"🔒 **{name}** ({product} | {atype})"):
                         st.warning(f"⚠️ 您没有 **{product}** 的访问权限")
                         if product in PRODUCT_CONFIG:
@@ -450,15 +561,14 @@ elif page == "➕ 上传资产":
         asset_name = st.text_input("资产名称 *")
         campaign_name = st.text_input("活动名称")
         
-        # 原文件链接
         st.markdown("**原文件链接（可选）：**")
+        st.markdown("💡 如果文件已上传到GitHub，填写GitHub链接可直接下载")
         col_url, col_desc = st.columns(2)
         with col_url:
-            original_file_url = st.text_input("文件链接", placeholder="https://xxx.com/file.html")
+            original_file_url = st.text_input("文件链接", placeholder="https://github.com/xxx/blob/main/assets/xxx.xlsx")
         with col_desc:
             original_file_desc = st.text_input("链接描述", placeholder="如：完整版HTML报告")
         
-        # 摘要（固定格式）
         st.markdown("**摘要 *（请按以下格式填写）：**")
         st.markdown("""
         ```
@@ -493,7 +603,6 @@ elif page == "➕ 上传资产":
                     "created_at": datetime.now().strftime('%Y-%m-%d')
                 }
                 
-                # 添加原文件链接
                 if original_file_url:
                     asset_data["original_file"] = {
                         "url": original_file_url,
@@ -573,4 +682,4 @@ elif page == "👥 权限说明":
 
 # ========== 页脚 ==========
 st.markdown("---")
-st.markdown("<div style='text-align: center; color: #666;'>品牌资产共享库 v3.2 | 严格数据隔离</div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align: center; color: #666;'>品牌资产共享库 v3.4 | 支持原文件直接下载</div>", unsafe_allow_html=True)
