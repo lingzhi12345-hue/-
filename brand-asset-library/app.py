@@ -1,6 +1,6 @@
 """
-品牌资产共享库 - Streamlit 应用 v3.0
-支持产品密码保护、管理员权限控制、重复去重
+品牌资产共享库 - Streamlit 应用 v3.1
+产品隔离 + 管理员验证 + 统计面板公开
 """
 
 import streamlit as st
@@ -11,7 +11,7 @@ import requests
 import hashlib
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 # ========== 页面配置 ==========
 st.set_page_config(
@@ -33,23 +33,18 @@ st.markdown("""
         margin: 2px;
         font-size: 12px;
     }
-    .product-nav {
-        padding: 8px 12px;
-        margin: 4px 0;
-        border-radius: 8px;
-        cursor: pointer;
-    }
-    .product-nav:hover {
-        background: #f0f0f0;
-    }
-    .product-nav.active {
-        background: #e3f2fd;
-        font-weight: bold;
-    }
 </style>
 """, unsafe_allow_html=True)
 
 # ========== 配置信息 ==========
+
+# 超级管理员（可访问所有产品）
+SUPER_ADMINS = {
+    "guoyajun@corp.netease.com": "gyj123",
+    "huanglingzhi02@corp.netease.com": "hlz123"
+}
+
+# 产品配置
 PRODUCT_CONFIG = {
     "梦幻西游电脑版": {
         "password": "wkmt24h3",
@@ -102,7 +97,7 @@ ASSET_TYPES = [
     "舆情竞品监测"
 ]
 
-# 需要管理员审核的类型
+# 需要管理员权限上传的类型
 ADMIN_REQUIRED_TYPES = ["游戏说明书", "KOL投放", "平台合作", "小喇叭"]
 
 # ========== GitHub 配置 ==========
@@ -170,30 +165,47 @@ def get_statistics(assets: List[Dict]) -> Dict:
     
     return stats
 
-# ========== 密码验证 ==========
-def check_product_password(product: str, password: str) -> bool:
-    """验证产品密码"""
+# ========== 权限管理 ==========
+def is_super_admin(email: str) -> bool:
+    """检查是否是超级管理员"""
+    return email in SUPER_ADMINS
+
+def verify_super_admin(email: str, password: str) -> bool:
+    """验证超级管理员密码"""
+    if email not in SUPER_ADMINS:
+        return False
+    return SUPER_ADMINS[email] == password
+
+def is_product_admin(product: str, email: str) -> bool:
+    """检查是否是产品管理员"""
     if product not in PRODUCT_CONFIG:
         return False
-    return PRODUCT_CONFIG[product]["password"] == password
+    return PRODUCT_CONFIG[product]["admin"] == email
 
-def get_authorized_products() -> List[str]:
-    """获取已授权的产品列表"""
-    if 'authorized_products' not in st.session_state:
-        st.session_state['authorized_products'] = []
-    return st.session_state['authorized_products']
+def get_accessible_products(email: str) -> Set[str]:
+    """获取用户可访问的产品列表"""
+    if 'accessible_products' not in st.session_state:
+        st.session_state['accessible_products'] = set()
+    
+    # 超级管理员可访问所有产品
+    if is_super_admin(email):
+        return set(PRODUCT_CONFIG.keys())
+    
+    # 产品管理员可访问自己负责的产品
+    admin_products = {p for p, c in PRODUCT_CONFIG.items() if c['admin'] == email}
+    
+    # 加上已授权的产品
+    return admin_products | st.session_state['accessible_products']
 
 def authorize_product(product: str):
     """授权产品访问"""
-    if 'authorized_products' not in st.session_state:
-        st.session_state['authorized_products'] = []
-    if product not in st.session_state['authorized_products']:
-        st.session_state['authorized_products'].append(product)
+    if 'accessible_products' not in st.session_state:
+        st.session_state['accessible_products'] = set()
+    st.session_state['accessible_products'].add(product)
 
 # ========== 重复检测 ==========
 def get_asset_hash(asset: Dict) -> str:
     """计算资产内容哈希"""
-    # 提取核心字段
     core_fields = {
         'name': asset.get('name', ''),
         'asset_type': asset.get('asset_type', ''),
@@ -211,26 +223,13 @@ def check_duplicate(asset: Dict, existing_assets: List[Dict]) -> Optional[Dict]:
             return existing
     return None
 
-# ========== 权限检查 ==========
-def is_product_admin(product: str, user_email: str) -> bool:
-    """检查用户是否是产品管理员"""
-    if product not in PRODUCT_CONFIG:
-        return False
-    return PRODUCT_CONFIG[product]["admin"] == user_email
-
-def get_user_email() -> Optional[str]:
-    """获取当前用户邮箱（从 session 或输入）"""
-    if 'user_email' in st.session_state:
-        return st.session_state['user_email']
-    return None
-
 # ========== 主程序 ==========
 assets = get_assets()
 stats = get_statistics(assets)
 github_config = get_github_config()
 
 # ========== 侧边栏 ==========
-st.sidebar.title("🎨 品牌资产共享库")
+st.sidebar.title("🎨 内推广州*品牌资产库")
 st.sidebar.markdown(f"**资产总数: {len(assets)}**")
 
 if github_config:
@@ -240,39 +239,68 @@ else:
 
 st.sidebar.markdown("---")
 
-# 用户邮箱输入
+# 用户身份验证
+user_email = None
+is_verified_admin = False
+
 if 'user_email' not in st.session_state:
-    user_email = st.sidebar.text_input("请输入邮箱以识别身份", placeholder="xxx@corp.netease.com")
-    if user_email:
-        st.session_state['user_email'] = user_email
-        st.rerun()
+    st.sidebar.markdown("### 🔐 身份验证")
+    email_input = st.sidebar.text_input("请输入邮箱", placeholder="xxx@corp.netease.com", key="email_input")
+    
+    if email_input:
+        # 检查是否是管理员邮箱
+        if is_super_admin(email_input):
+            # 管理员需要输入密码
+            admin_pwd = st.sidebar.text_input("管理员密码", type="password", key="admin_pwd_input")
+            if admin_pwd:
+                if verify_super_admin(email_input, admin_pwd):
+                    st.session_state['user_email'] = email_input
+                    st.session_state['is_verified_admin'] = True
+                    st.sidebar.success("✅ 管理员验证成功")
+                    st.rerun()
+                else:
+                    st.sidebar.error("❌ 密码错误")
+        else:
+            # 普通用户直接登录
+            st.session_state['user_email'] = email_input
+            st.session_state['is_verified_admin'] = False
+            st.rerun()
 else:
-    st.sidebar.markdown(f"👤 **{st.session_state['user_email']}**")
+    user_email = st.session_state['user_email']
+    is_verified_admin = st.session_state.get('is_verified_admin', False)
+    
+    if is_verified_admin:
+        st.sidebar.markdown(f"👑 **{user_email}**")
+        st.sidebar.markdown("*超级管理员*")
+    else:
+        st.sidebar.markdown(f"👤 **{user_email}**")
+    
     if st.sidebar.button("切换账号"):
-        del st.session_state['user_email']
-        if 'authorized_products' in st.session_state:
-            del st.session_state['authorized_products']
+        for key in ['user_email', 'is_verified_admin', 'accessible_products', 'current_product']:
+            if key in st.session_state:
+                del st.session_state[key]
         st.rerun()
 
 st.sidebar.markdown("---")
 
-# 产品导航
-st.sidebar.markdown("### 📦 产品导航")
-authorized_products = get_authorized_products()
-
-for product in PRODUCT_CONFIG.keys():
-    col1, col2 = st.sidebar.columns([3, 1])
-    with col1:
-        if product in authorized_products:
-            if st.button(f"✅ {product}", key=f"nav_{product}"):
+# 产品导航（根据权限显示）
+if user_email:
+    accessible = get_accessible_products(user_email)
+    
+    st.sidebar.markdown("### 📦 产品导航")
+    
+    for product in PRODUCT_CONFIG.keys():
+        count = stats['by_product'].get(product, 0)
+        
+        if product in accessible:
+            # 已授权的产品
+            if st.sidebar.button(f"✅ {product} ({count})", key=f"nav_{product}"):
                 st.session_state['current_product'] = product
         else:
-            if st.button(f"🔒 {product}", key=f"nav_{product}"):
+            # 未授权的产品
+            if st.sidebar.button(f"🔒 {product} ({count})", key=f"nav_{product}"):
                 st.session_state['current_product'] = product
-    
-    with col2:
-        count = stats['by_product'].get(product, 0)
-        st.markdown(f"`{count}`")
+                st.session_state['need_password'] = True
 
 st.sidebar.markdown("---")
 
@@ -281,25 +309,28 @@ page = st.sidebar.radio(
     ["📚 资产浏览", "🔍 搜索资产", "➕ 上传资产", "📊 统计面板", "👥 权限说明"]
 )
 
-# ========== 密码验证弹窗 ==========
-if 'current_product' in st.session_state:
+# ========== 产品密码验证 ==========
+if 'current_product' in st.session_state and user_email:
     current_product = st.session_state['current_product']
+    accessible = get_accessible_products(user_email)
     
-    if current_product not in authorized_products:
+    if current_product not in accessible:
         st.markdown(f"### 🔒 访问 {current_product} 资产库")
         st.markdown("请输入产品密码以访问该产品的资产。")
         
         password = st.text_input("产品密码", type="password", key=f"pwd_{current_product}")
         
         if st.button("验证密码", key=f"verify_{current_product}"):
-            if check_product_password(current_product, password):
-                authorize_product(current_product)
-                st.success("✅ 密码正确，已授权访问")
-                st.rerun()
-            else:
-                st.error("❌ 密码错误，请重试")
+            if current_product in PRODUCT_CONFIG:
+                if PRODUCT_CONFIG[current_product]['password'] == password:
+                    authorize_product(current_product)
+                    st.success("✅ 密码正确，已授权访问")
+                    if 'need_password' in st.session_state:
+                        del st.session_state['need_password']
+                    st.rerun()
+                else:
+                    st.error("❌ 密码错误")
         
-        st.markdown("---")
         st.markdown(f"💡 如需获取密码，请联系产品管理员：`{PRODUCT_CONFIG[current_product]['admin']}`")
         st.stop()
 
@@ -309,24 +340,32 @@ if page == "📚 资产浏览":
     
     # 筛选器
     col1, col2, col3 = st.columns(3)
+    
     with col1:
-        # 只显示已授权的产品
-        product_options = ["全部"] + authorized_products
+        # 产品筛选（只显示可访问的产品）
+        if user_email:
+            accessible = get_accessible_products(user_email)
+            product_options = ["全部"] + [p for p in PRODUCT_CONFIG.keys() if p in accessible]
+        else:
+            product_options = ["全部"]
         filter_product = st.selectbox("产品筛选", product_options)
+    
     with col2:
         asset_types = ["全部"] + ASSET_TYPES
         filter_type = st.selectbox("资产类型", asset_types)
+    
     with col3:
         authors = ["全部"] + list(stats['by_author'].keys())
         filter_author = st.selectbox("作者筛选", authors)
     
     # 应用筛选
     filtered = assets
+    
+    # 产品隔离：只显示当前选中产品的资产
+    if 'current_product' in st.session_state and st.session_state['current_product']:
+        filter_product = st.session_state['current_product']
+    
     if filter_product != "全部":
-        # 检查权限
-        if filter_product not in authorized_products:
-            st.warning(f"⚠️ 您尚未获得 {filter_product} 的访问权限")
-            st.stop()
         filtered = [a for a in filtered if a.get('source', {}).get('product') == filter_product]
     if filter_type != "全部":
         filtered = [a for a in filtered if a.get('asset_type', '未分类') == filter_type]
@@ -346,87 +385,92 @@ if page == "📚 资产浏览":
             atype = asset.get('asset_type', '未分类')
             
             with st.expander(f"**{name}** - {author} ({product} | {atype})"):
-                col1, col2 = st.columns([2, 1])
+                st.markdown(f"**来源：** {asset.get('source', {}).get('campaign_name', '-')}")
+                st.markdown(f"**创建时间：** {asset.get('created_at', '-')}")
                 
-                with col1:
-                    st.markdown(f"**来源：** {asset.get('source', {}).get('campaign_name', '-')}")
-                    st.markdown(f"**创建时间：** {asset.get('created_at', '-')}")
-                    
-                    st.markdown("**标签：**")
-                    tags_html = "".join([f'<span class="tag-badge">{t}</span>' for t in asset.get('tags', [])])
-                    st.markdown(tags_html, unsafe_allow_html=True)
-                    
-                    if asset.get('notes'):
-                        st.markdown(f"**备注：** {asset.get('notes')}")
-                    
-                    # 显示完整数据（折叠）
-                    with st.expander("📄 查看完整数据"):
-                        st.code(yaml.dump(asset, allow_unicode=True, sort_keys=False), language="yaml")
+                st.markdown("**标签：**")
+                tags_html = "".join([f'<span class="tag-badge">{t}</span>' for t in asset.get('tags', [])])
+                st.markdown(tags_html, unsafe_allow_html=True)
+                
+                if asset.get('notes'):
+                    st.markdown(f"**备注：** {asset.get('notes')}")
+                
+                with st.expander("📄 查看完整数据"):
+                    st.code(yaml.dump(asset, allow_unicode=True, sort_keys=False), language="yaml")
 
 # ========== 页面：搜索资产 ==========
 elif page == "🔍 搜索资产":
     st.title("🔍 搜索资产")
     
-    search_type = st.radio("搜索方式", ["关键词搜索", "标签匹配", "按产品筛选"])
+    search_type = st.radio("搜索方式", ["关键词搜索", "标签匹配"])
     
     if search_type == "关键词搜索":
         keyword = st.text_input("输入关键词", placeholder="如：暗黑、阴阳师、达人筛选")
         if keyword:
-            # 只搜索已授权的产品
+            # 只搜索可访问的产品
+            if user_email:
+                accessible = get_accessible_products(user_email)
+            else:
+                accessible = set()
+            
             results = [a for a in assets if 
-                      (a.get('source', {}).get('product') in authorized_products or not authorized_products) and
-                      (keyword.lower() in a.get('name', '').lower() or
+                      keyword.lower() in a.get('name', '').lower() or
                       keyword.lower() in str(a.get('tags', [])).lower() or
                       keyword.lower() in a.get('source', {}).get('product', '').lower() or
-                      keyword.lower() in str(a).lower())]
+                      keyword.lower() in str(a).lower()]
+            
             st.markdown(f"**找到 {len(results)} 个结果**")
+            st.markdown("---")
+            
             for asset in results:
-                st.markdown(f"- **{asset.get('name')}** ({asset.get('source', {}).get('product', '-')})")
+                name = asset.get('name', '未命名')
+                product = asset.get('source', {}).get('product', '-')
+                atype = asset.get('asset_type', '未分类')
+                
+                with st.expander(f"**{name}** ({product} | {atype})"):
+                    st.markdown(f"**来源：** {asset.get('source', {}).get('campaign_name', '-')}")
+                    st.markdown(f"**创建时间：** {asset.get('created_at', '-')}")
+                    st.markdown("**标签：** " + ", ".join(asset.get('tags', [])))
     
-    elif search_type == "标签匹配":
+    else:
         all_tags = list(stats['by_tag'].keys())
         selected_tags = st.multiselect("选择标签", all_tags)
         if selected_tags:
-            results = [a for a in assets if 
-                      (a.get('source', {}).get('product') in authorized_products or not authorized_products) and
-                      set(selected_tags) & set(a.get('tags', []))]
+            results = [a for a in assets if set(selected_tags) & set(a.get('tags', []))]
             st.markdown(f"**找到 {len(results)} 个结果**")
+            st.markdown("---")
+            
             for asset in results:
+                name = asset.get('name', '未命名')
+                product = asset.get('source', {}).get('product', '-')
                 common_tags = set(selected_tags) & set(asset.get('tags', []))
-                st.markdown(f"- **{asset.get('name')}** ({asset.get('source', {}).get('product', '-')}) - 匹配标签: {', '.join(common_tags)}")
-    
-    else:
-        # 只显示已授权的产品
-        products = [p for p in stats['by_product'].keys() if p in authorized_products]
-        selected_product = st.selectbox("选择产品", products)
-        if selected_product:
-            results = [a for a in assets if a.get('source', {}).get('product') == selected_product]
-            st.markdown(f"**找到 {len(results)} 个结果**")
-            for asset in results:
-                st.markdown(f"- **{asset.get('name')}** ({asset.get('asset_type', '-')})")
+                
+                with st.expander(f"**{name}** ({product})"):
+                    st.markdown(f"**匹配标签：** {', '.join(common_tags)}")
+                    st.markdown(f"**创建时间：** {asset.get('created_at', '-')}")
 
 # ========== 页面：上传资产 ==========
 elif page == "➕ 上传资产":
     st.title("➕ 上传资产")
     
-    user_email = get_user_email()
     if not user_email:
         st.warning("⚠️ 请先在侧边栏输入邮箱以识别身份")
         st.stop()
     
     # 选择产品
-    product = st.selectbox("选择产品", list(PRODUCT_CONFIG.keys()))
-    
-    # 检查产品访问权限
-    if product not in authorized_products:
-        st.warning(f"⚠️ 您尚未获得 {product} 的访问权限，请先在侧边栏验证密码")
+    accessible = get_accessible_products(user_email)
+    if not accessible:
+        st.warning("⚠️ 您还没有访问任何产品的权限")
+        st.markdown("请在侧边栏点击产品名称并输入密码获取权限")
         st.stop()
+    
+    product = st.selectbox("选择产品", sorted(list(accessible)))
     
     # 选择资产类型
     asset_type = st.selectbox("资产类型", ASSET_TYPES)
     
-    # 检查是否需要管理员权限
-    is_admin = is_product_admin(product, user_email)
+    # 检查权限
+    is_admin = is_product_admin(product, user_email) or is_verified_admin
     
     if asset_type in ADMIN_REQUIRED_TYPES and not is_admin:
         st.warning(f"⚠️ **{asset_type}** 类型的资产需要产品管理员上传")
@@ -434,33 +478,24 @@ elif page == "➕ 上传资产":
         **当前产品管理员：** `{PRODUCT_CONFIG[product]['admin']}`
         
         **操作方式：**
-        1. 将资产内容发送给产品管理员
-        2. 由管理员审核后上传
-        
-        您可以继续填写资产信息，生成的 YAML 将发送给管理员。
+        1. 继续填写资产信息，生成 YAML
+        2. 将 YAML 发送给产品管理员
+        3. 由管理员审核后上传
         """)
-        
-        admin_mode = False
+        can_upload = False
     else:
         if is_admin:
-            st.success(f"✅ 您是 {product} 的管理员，可以直接上传")
-        admin_mode = True
+            st.success(f"✅ 您有权限直接上传 {asset_type} 类型资产")
+        can_upload = True
     
     # 资产表单
     with st.form("asset_form"):
-        st.subheader("📋 基本信息")
-        col1, col2 = st.columns(2)
-        with col1:
-            asset_name = st.text_input("资产名称 *", placeholder="如：暗黑风+神圣感")
-        with col2:
-            campaign_name = st.text_input("活动名称", placeholder="如：阴阳师3月SP蚀月吸血姬")
-        
+        asset_name = st.text_input("资产名称 *", placeholder="如：暗黑风+神圣感")
+        campaign_name = st.text_input("活动名称", placeholder="如：阴阳师3月SP蚀月吸血姬")
         tags_input = st.text_input("标签（逗号分隔）", placeholder="暗黑风, 神圣感, COS变装")
-        
-        # 自由内容
         custom_content = st.text_area(
             "其他内容（YAML格式）",
-            placeholder="character_traits:\n  - 特征1\n  - 特征2\n\nnotes: 备注信息",
+            placeholder="character_traits:\n  - 特征1\n  - 特征2",
             height=150
         )
         
@@ -482,7 +517,6 @@ elif page == "➕ 上传资产":
                     "created_at": datetime.now().strftime('%Y-%m-%d')
                 }
                 
-                # 合并自定义内容
                 if custom_content:
                     try:
                         custom_data = yaml.safe_load(custom_content)
@@ -495,37 +529,31 @@ elif page == "➕ 上传资产":
                 duplicate = check_duplicate(asset_data, assets)
                 if duplicate:
                     st.warning(f"⚠️ 检测到重复资产：**{duplicate.get('name')}** (创建于 {duplicate.get('created_at')})")
-                    st.markdown("如需继续上传，请确认内容有所不同。")
                 
                 yaml_str = yaml.dump(asset_data, allow_unicode=True, sort_keys=False)
                 st.success("✅ 资产生成成功！")
                 st.code(yaml_str, language="yaml")
                 
-                if admin_mode:
-                    st.markdown("### 📤 上传到资产库")
-                    st.info("复制以上 YAML 内容，通过 OpenClaw Agent 或管理员上传到资产库")
+                if can_upload:
+                    st.info("📋 复制以上 YAML 内容，通过 OpenClaw Agent 上传到资产库")
                 else:
-                    st.markdown(f"### 📧 发送给管理员")
-                    st.markdown(f"请将以上内容发送给产品管理员：**{PRODUCT_CONFIG[product]['admin']}**")
+                    st.markdown(f"📧 请将以上内容发送给产品管理员：**{PRODUCT_CONFIG[product]['admin']}**")
 
-# ========== 页面：统计面板 ==========
+# ========== 页面：统计面板（公开） ==========
 elif page == "📊 统计面板":
     st.title("📊 统计面板")
-    
-    # 只统计已授权的产品
-    visible_assets = [a for a in assets if a.get('source', {}).get('product') in authorized_products or not authorized_products]
-    visible_stats = get_statistics(visible_assets)
+    st.markdown("*所有产品资产统计（公开可见）*")
     
     # 总览卡片
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("总资产数", visible_stats['total'])
+        st.metric("总资产数", stats['total'])
     with col2:
-        st.metric("产品数", len([p for p in visible_stats['by_product'] if p in authorized_products]))
+        st.metric("产品数", len(stats['by_product']))
     with col3:
-        st.metric("贡献者", len(visible_stats['by_author']))
+        st.metric("贡献者", len(stats['by_author']))
     with col4:
-        st.metric("资产类型", len(visible_stats['by_type']))
+        st.metric("资产类型", len(stats['by_type']))
     
     st.markdown("---")
     
@@ -533,36 +561,29 @@ elif page == "📊 统计面板":
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("📦 按产品分布")
-        if visible_stats['by_product']:
-            for product, count in sorted(visible_stats['by_product'].items(), key=lambda x: -x[1]):
-                if product in authorized_products:
-                    lock_status = "✅" if product in authorized_products else "🔒"
-                    st.markdown(f"- {lock_status} **{product}**: {count} 个资产")
-        else:
-            st.info("暂无数据")
+        if stats['by_product']:
+            for product, count in sorted(stats['by_product'].items(), key=lambda x: -x[1]):
+                st.markdown(f"- **{product}**: {count} 个资产")
     
     with col2:
         st.subheader("📋 按资产类型分布")
-        if visible_stats['by_type']:
-            for atype, count in sorted(visible_stats['by_type'].items(), key=lambda x: -x[1]):
+        if stats['by_type']:
+            for atype, count in sorted(stats['by_type'].items(), key=lambda x: -x[1]):
                 st.markdown(f"- **{atype}**: {count} 个资产")
-        else:
-            st.info("暂无数据")
     
     st.markdown("---")
     
-    # 按标签和作者
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("🏷️ 热门标签 TOP 10")
-        if visible_stats['by_tag']:
-            for tag, count in sorted(visible_stats['by_tag'].items(), key=lambda x: -x[1])[:10]:
+        if stats['by_tag']:
+            for tag, count in sorted(stats['by_tag'].items(), key=lambda x: -x[1])[:10]:
                 st.markdown(f"- {tag}: {count}")
     
     with col2:
         st.subheader("👥 贡献者排行")
-        if visible_stats['by_author']:
-            for author, count in sorted(visible_stats['by_author'].items(), key=lambda x: -x[1]):
+        if stats['by_author']:
+            for author, count in sorted(stats['by_author'].items(), key=lambda x: -x[1]):
                 st.markdown(f"- {author}: {count} 个资产")
 
 # ========== 页面：权限说明 ==========
@@ -570,11 +591,17 @@ elif page == "👥 权限说明":
     st.title("👥 权限说明")
     
     st.markdown("""
-    ### 访问权限
+    ### 🔐 产品隔离
     
-    每个产品都有独立的访问密码，需要输入正确密码才能查看该产品的资产。
+    每个产品资产库独立，需要输入产品密码才能查看。
     
-    ### 管理员权限
+    ### 👑 超级管理员
+    
+    超级管理员可访问所有产品资产，无需输入产品密码：
+    - `guoyajun@corp.netease.com`
+    - `huanglingzhi02@corp.netease.com`
+    
+    ### 🔑 产品管理员
     
     每个产品设有管理员，负责审核和上传特定类型的资产。
     
@@ -584,17 +611,29 @@ elif page == "👥 权限说明":
     - 平台合作
     - 小喇叭
     
-    **无需管理员审核的类型：**
-    - 舆情竞品监测（所有用户可直接上传）
+    **所有人可上传的类型：**
+    - 舆情竞品监测
     
     ---
     """)
     
     st.subheader("📋 产品管理员列表")
-    
     for product, config in PRODUCT_CONFIG.items():
         st.markdown(f"- **{product}**：`{config['admin']}`")
+    
+    st.markdown("---")
+    st.markdown("""
+    ### ⚠️ 关于 OpenClaw Agent（虾）
+    
+    App 内的密码保护**仅对 Streamlit 网页生效**。
+    
+    虾通过 GitHub API 直接操作资产库，不受网页密码限制。
+    
+    **安全建议：**
+    - GitHub Token 只给管理员使用
+    - 普通用户让虾生成 YAML 后，发给管理员上传
+    """)
 
 # ========== 页脚 ==========
 st.markdown("---")
-st.markdown("<div style='text-align: center; color: #666; padding: 20px;'>品牌资产共享库 v3.0 | 产品密码保护 | 管理员权限控制</div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align: center; color: #666; padding: 20px;'>品牌资产共享库 v3.1 | 产品隔离 | 管理员权限</div>", unsafe_allow_html=True)
