@@ -52,7 +52,7 @@ PRODUCT_CONFIG = {
     "率土之滨": {"password": "58ho9atd", "admin": "linxiao03@corp.netease.com"},
     "光遇": {"password": "0mvn84pq", "admin": "huanglingzhi02@corp.netease.com"},
     "萤火突击": {"password": "tkvcnczy", "admin": "huangsuixin@corp.netease.com"},
-    "阴阳师": {"password": "6t8ktxlu", "admin": "huanglingzhi02@corp.netease.com"},
+    "阴阳师": {"password": "yysyyds", "admin": "huanglingzhi02@corp.netease.com"},
     "世界之外": {"password": "vke6xtnk", "admin": "huangsuixin@corp.netease.com"},
     "实况足球手游": {"password": "216ewoxn", "admin": "jiangjinpeng02@corp.netease.com"},
     "巅峰极速": {"password": "u3capmir", "admin": "huanglingzhi02@corp.netease.com"}
