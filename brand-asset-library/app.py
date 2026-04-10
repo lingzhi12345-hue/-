@@ -595,12 +595,6 @@ elif page == "👥 权限说明":
     
     每个产品资产库独立，需要输入产品密码才能查看。
     
-    ### 👑 超级管理员
-    
-    超级管理员可访问所有产品资产，无需输入产品密码：
-    - `guoyajun@corp.netease.com`
-    - `huanglingzhi02@corp.netease.com`
-    
     ### 🔑 产品管理员
     
     每个产品设有管理员，负责审核和上传特定类型的资产。
@@ -623,16 +617,6 @@ elif page == "👥 权限说明":
     
     st.markdown("---")
     st.markdown("""
-    ### ⚠️ 关于 OpenClaw Agent（虾）
-    
-    App 内的密码保护**仅对 Streamlit 网页生效**。
-    
-    虾通过 GitHub API 直接操作资产库，不受网页密码限制。
-    
-    **安全建议：**
-    - GitHub Token 只给管理员使用
-    - 普通用户让虾生成 YAML 后，发给管理员上传
-    """)
 
 # ========== 页脚 ==========
 st.markdown("---")
