@@ -1,11 +1,14 @@
 """
 品牌资产共享库 - Streamlit 应用
 支持资产浏览、创建、搜索、导出
+支持自动同步到 GitHub
 """
 
 import streamlit as st
 import yaml
 import json
+import base64
+import requests
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -18,13 +21,51 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ========== 资产管理器（内嵌版本，避免导入问题） ==========
+# ========== GitHub 同步器（内嵌版本） ==========
+class GitHubSync:
+    """GitHub 同步器"""
+    
+    def __init__(self, token: str, repo: str, branch: str = "main"):
+        self.token = token
+        self.repo = repo
+        self.branch = branch
+        self.api_base = "https://api.github.com"
+    
+    def _get_headers(self):
+        return {
+            "Authorization": f"token {self.token}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+    
+    def file_exists(self, file_path: str) -> Optional[str]:
+        url = f"{self.api_base}/repos/{self.repo}/contents/{file_path}"
+        params = {"ref": self.branch}
+        response = requests.get(url, headers=self._get_headers(), params=params)
+        if response.status_code == 200:
+            return response.json().get('sha')
+        return None
+    
+    def commit_file(self, file_path: str, content: str, message: str = "Update file") -> bool:
+        url = f"{self.api_base}/repos/{self.repo}/contents/{file_path}"
+        sha = self.file_exists(file_path)
+        data = {
+            "message": message,
+            "content": base64.b64encode(content.encode('utf-8')).decode('utf-8'),
+            "branch": self.branch
+        }
+        if sha:
+            data["sha"] = sha
+        response = requests.put(url, headers=self._get_headers(), json=data)
+        return response.status_code in [200, 201]
+
+# ========== 资产管理器（内嵌版本） ==========
 class AssetManager:
     """品牌资产管理器"""
     
-    def __init__(self, assets_dir: str = "assets"):
+    def __init__(self, assets_dir: str = "assets", github_sync: Optional[GitHubSync] = None):
         self.assets_dir = Path(assets_dir)
         self.assets_dir.mkdir(parents=True, exist_ok=True)
+        self.github_sync = github_sync
         
     def load_asset(self, asset_id: str) -> Optional[Dict]:
         file_path = self.assets_dir / f"{asset_id}.yaml"
@@ -70,10 +111,40 @@ class AssetManager:
         if not asset_data.get('created_at'):
             asset_data['created_at'] = asset_data['updated_at']
         self._validate_asset(asset_data)
+        
+        # 保存到本地
         file_path = self.assets_dir / f"{asset_data['asset_id']}.yaml"
+        yaml_content = yaml.dump(asset_data, allow_unicode=True, sort_keys=False)
         with open(file_path, 'w', encoding='utf-8') as f:
-            yaml.dump(asset_data, f, allow_unicode=True, sort_keys=False)
+            f.write(yaml_content)
+        
+        # 同步到 GitHub
+        if self.github_sync:
+            try:
+                self.github_sync.commit_file(
+                    f"assets/{asset_data['asset_id']}.yaml",
+                    yaml_content,
+                    f"添加资产: {asset_data.get('name', asset_data['asset_id'])}"
+                )
+                # 更新 assets.json
+                self._update_assets_json()
+            except Exception as e:
+                st.warning(f"GitHub 同步失败: {str(e)}")
+        
         return asset_data['asset_id']
+    
+    def _update_assets_json(self):
+        """更新 assets.json 文件"""
+        assets = self.list_assets()
+        json_content = json.dumps(assets, ensure_ascii=False, indent=2)
+        with open("assets.json", 'w', encoding='utf-8') as f:
+            f.write(json_content)
+        if self.github_sync:
+            self.github_sync.commit_file(
+                "assets.json",
+                json_content,
+                "更新资产列表"
+            )
     
     def _validate_asset(self, asset_data: Dict):
         required_fields = ['name', 'author', 'source', 'tags', 'content_structure', 'top_cases']
@@ -173,7 +244,19 @@ st.markdown("""
 # ========== 初始化 ==========
 @st.cache_resource
 def get_asset_manager():
-    return AssetManager(assets_dir="assets")
+    # 尝试从 secrets 读取 GitHub 配置
+    github_sync = None
+    try:
+        if hasattr(st, 'secrets') and 'github' in st.secrets:
+            github_sync = GitHubSync(
+                token=st.secrets['github']['token'],
+                repo=st.secrets['github']['repo'],
+                branch=st.secrets['github'].get('branch', 'main')
+            )
+    except Exception as e:
+        st.warning(f"GitHub 同步未启用: {str(e)}")
+    
+    return AssetManager(assets_dir="assets", github_sync=github_sync)
 
 manager = get_asset_manager()
 
@@ -185,6 +268,12 @@ page = st.sidebar.radio(
     "功能导航",
     ["📚 资产浏览", "➕ 创建资产", "🔍 搜索资产", "📊 统计面板", "🔌 API集成"]
 )
+
+# 显示 GitHub 同步状态
+if manager.github_sync:
+    st.sidebar.success("✅ GitHub 同步已启用")
+else:
+    st.sidebar.warning("⚠️ GitHub 同步未配置")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("""
@@ -390,6 +479,8 @@ elif page == "➕ 创建资产":
                 try:
                     asset_id = manager.save_asset(asset_data)
                     st.success(f"✅ 资产创建成功！资产ID: {asset_id}")
+                    if manager.github_sync:
+                        st.success("📤 已同步到 GitHub")
                     st.balloons()
                 except Exception as e:
                     st.error(f"创建失败: {str(e)}")
@@ -509,7 +600,7 @@ elif page == "🔌 API集成":
 import requests
 
 # GitHub Raw URL
-url = "https://raw.githubusercontent.com/你的用户名/brand-asset-library/main/assets.json"
+url = "https://raw.githubusercontent.com/lingzhi12345-hue/brand-asset-library/main/assets.json"
 
 response = requests.get(url)
 assets = response.json()
@@ -522,7 +613,7 @@ dark_style_assets = [a for a in assets if '暗黑风' in a.get('tags', [])]
     st.code("""
 # 获取特定资产
 asset_id = "ASSET-20260409-001"
-url = f"https://raw.githubusercontent.com/你的用户名/brand-asset-library/main/assets/{asset_id}.yaml"
+url = f"https://raw.githubusercontent.com/lingzhi12345-hue/brand-asset-library/main/assets/{asset_id}.yaml"
 
 response = requests.get(url)
 import yaml
@@ -550,13 +641,10 @@ similar = find_similar_assets(['暗黑风', '神圣感'], assets)
     
     st.markdown("---")
     
-    st.subheader("📡 部署后更新 URL")
-    st.info("""
-    1. 创建 GitHub 仓库：`brand-asset-library`
-    2. 上传项目代码
-    3. 部署到 Streamlit Cloud
-    4. 更新上面的 URL 中的 `你的用户名`
-    5. 在龙虾 Agent 中配置 API 调用
+    st.subheader("📡 当前 API 地址")
+    st.info(f"""
+    - 资产列表: `https://raw.githubusercontent.com/lingzhi12345-hue/brand-asset-library/main/assets.json`
+    - 单个资产: `https://raw.githubusercontent.com/lingzhi12345-hue/brand-asset-library/main/assets/{{asset_id}}.yaml`
     """)
     
     st.markdown("---")
@@ -576,6 +664,6 @@ similar = find_similar_assets(['暗黑风', '神圣感'], assets)
 st.markdown("---")
 st.markdown("""
 <div style="text-align: center; color: #666; padding: 20px;">
-    品牌资产共享库 v1.0 | 由 OpenClaw 搭建
+    品牌资产共享库 v1.1 | 由 OpenClaw 搭建 | 支持 GitHub 自动同步
 </div>
 """, unsafe_allow_html=True)
