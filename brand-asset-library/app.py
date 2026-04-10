@@ -144,7 +144,7 @@ all_asset_types = get_all_asset_types(assets)
 github_config = get_github_config()
 
 # ========== 侧边栏 ==========
-st.sidebar.title("🎨 品牌资产共享库")
+st.sidebar.title("🎨 内推广州*品牌资产库")
 st.sidebar.markdown(f"**资产总数: {len(assets)}**")
 
 if github_config:
