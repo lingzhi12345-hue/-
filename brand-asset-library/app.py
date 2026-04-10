@@ -1,5 +1,5 @@
 """
-品牌资产共享库 - Streamlit 应用 v3.4
+内推广州品牌资产库
 支持原文件直接下载
 """
 
@@ -15,7 +15,7 @@ from typing import Dict, List, Optional, Set
 
 # ========== 页面配置 ==========
 st.set_page_config(
-    page_title="品牌资产共享库",
+    page_title="内推广州品牌资产库",
     page_icon="🎨",
     layout="wide",
     initial_sidebar_state="expanded"
