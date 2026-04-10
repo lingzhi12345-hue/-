@@ -1,5 +1,5 @@
 """
-内推广州组*品牌资产共享库 
+品牌资产共享库 - Streamlit 应用 v2.1
 支持多用户共创、按产品分类、多种资产类型、自由上传
 """
 
@@ -14,7 +14,7 @@ from typing import Dict, List, Optional
 
 # ========== 页面配置 ==========
 st.set_page_config(
-    page_title="品牌资产共享库",
+    page_title="内推广州*品牌资产库",
     page_icon="🎨",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -213,7 +213,7 @@ if page == "📚 资产浏览":
                     
                     # 显示原始内容（折叠）
                     with st.expander("📄 查看完整数据"):
-                        st.yaml(asset)
+                        st.code(yaml.dump(asset, allow_unicode=True, sort_keys=False), language="yaml")
                 
                 with col2:
                     yaml_str = yaml.dump(asset, allow_unicode=True, sort_keys=False)
