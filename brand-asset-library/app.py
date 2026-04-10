@@ -616,7 +616,6 @@ elif page == "👥 权限说明":
         st.markdown(f"- **{product}**：`{config['admin']}`")
     
     st.markdown("---")
-    st.markdown("""
 
 # ========== 页脚 ==========
 st.markdown("---")
