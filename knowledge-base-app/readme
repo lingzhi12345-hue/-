@@ -1,0 +1,89 @@
+# 知识库查询页面
+
+一个基于 Streamlit 的知识库查询前端，用于展示和搜索 GitHub 私有仓库中的知识文档。
+
+## 功能
+
+- 📋 知识库概览：展示所有文档及其标签、摘要
+- 🔍 关键词搜索：简单的文字匹配搜索
+- 🔗 原文链接：直接跳转到 POPO 文档
+- 💡 龙虾引导：引导用户使用龙虾进行更精准的查询
+
+## 部署方式
+
+### 方式一：本地运行
+
+```bash
+# 1. 安装依赖
+pip install -r requirements.txt
+
+# 2. 配置 GitHub Token
+export GITHUB_TOKEN=你的token
+
+# 3. 启动
+streamlit run app.py
+```
+
+### 方式二：Streamlit Cloud 部署
+
+1. 将代码推送到 GitHub 仓库
+2. 访问 https://streamlit.io/cloud
+3. 连接你的 GitHub 仓库
+4. 设置环境变量 `GITHUB_TOKEN`
+5. 部署完成后获得公开链接，分享给同事
+
+### 方式三：公司内网部署
+
+```bash
+# 在内网服务器上运行
+streamlit run app.py --server.port 8501
+
+# 同事通过 http://服务器IP:8501 访问
+```
+
+## 配置
+
+### 环境变量
+
+| 变量名 | 说明 | 必需 |
+|--------|------|------|
+| GITHUB_TOKEN | GitHub Personal Access Token（需要仓库读取权限） | 是 |
+
+### GitHub Token 权限
+
+需要勾选以下权限：
+- `repo` (读取私有仓库)
+
+## 项目结构
+
+```
+knowledge-base-app/
+├── app.py              # Streamlit 主程序
+├── requirements.txt   # Python 依赖
+└── README.md          # 说明文档
+```
+
+## 使用说明
+
+### 页面搜索
+
+1. 在搜索框输入关键词
+2. 系统会在所有文档中搜索匹配内容
+3. 显示匹配片段及其上下文
+
+### 龙虾查询（推荐）
+
+在 POPO 中发送：
+
+```
+查询知识库 KOL合作的CPM标准是多少
+```
+
+龙虾会：
+- 理解自然语言
+- 返回精准答案
+- 提供原文链接和位置
+
+---
+
+*最后更新：2026-04-13*
