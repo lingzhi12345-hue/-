@@ -122,7 +122,7 @@ def search_in_content(content, keywords):
     return results[:20]  # 最多返回20条
 
 # 主界面
-st.markdown('<p class="main-header">📚 内容推广知识库</p>', unsafe_allow_html=True)
+st.markdown('<p class="main-header">📚 内推广州知识库</p>', unsafe_allow_html=True)
 
 # 检查 Token
 if not GITHUB_TOKEN:
@@ -151,7 +151,7 @@ with st.sidebar:
     在上方搜索框输入关键词，可搜索知识库中的所有文档。
     
     ### 龙虾查询（更精准）
-    在 POPO 中发送指令给龙虾：
+    在 POPO 中发送指令给龙虾，如：
     
     ```
     查询知识库 KOL合作的CPM标准
@@ -169,7 +169,7 @@ with st.sidebar:
     ---
     
     **联系管理员**
-    - 知识库维护：黄林志
+    - 知识库维护：罗南
     - GitHub：lingzhi12345-hue
     """)
 
@@ -239,16 +239,6 @@ if search_query:
             st.warning("未找到匹配结果，请尝试其他关键词")
         else:
             st.success(f"共找到 {total_results} 条匹配结果")
-
-# 底部提示
-st.divider()
-st.markdown("""
-<div class="lobster-tip">
-    💡 <b>更精准的搜索？试试龙虾！</b><br/>
-    在 POPO 中发送：<code>查询知识库 你的问题</code><br/>
-    龙虾会理解你的问题，给出精准答案和原文位置。
-</div>
-""", unsafe_allow_html=True)
 
 # 页脚
 st.caption(f"知识库版本 {index_data.get('version', '1.0')} | 更新时间：{index_data.get('updated', '')}")
