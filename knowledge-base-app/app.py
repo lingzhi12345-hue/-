@@ -170,7 +170,6 @@ with st.sidebar:
     
     **联系管理员**
     - 知识库维护：罗南
-    - GitHub：lingzhi12345-hue
     """)
 
 # 显示知识库概览
