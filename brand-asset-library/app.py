@@ -1,5 +1,5 @@
 """
-内推广州品牌资产库
+【广州组】产品/品类资产知识库 
 支持原文件直接下载
 """
 
@@ -15,7 +15,7 @@ from typing import Dict, List, Optional, Set
 
 # ========== 页面配置 ==========
 st.set_page_config(
-    page_title="内推广州品牌资产库",
+    page_title="【广州组】产品/品类资产知识库",
     page_icon="🎨",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -52,17 +52,17 @@ PRODUCT_CONFIG = {
     "率土之滨": {"password": "58ho9atd", "admin": "linxiao03@corp.netease.com"},
     "光遇": {"password": "0mvn84pq", "admin": "huanglingzhi02@corp.netease.com"},
     "萤火突击": {"password": "tkvcnczy", "admin": "huangsuixin@corp.netease.com"},
-    "阴阳师": {"password": "yysyyds", "admin": "huanglingzhi02@corp.netease.com"},
+    "阴阳师": {"password": "6t8ktxlu", "admin": "huanglingzhi02@corp.netease.com"},
     "世界之外": {"password": "vke6xtnk", "admin": "huangsuixin@corp.netease.com"},
     "实况足球手游": {"password": "216ewoxn", "admin": "jiangjinpeng02@corp.netease.com"},
     "巅峰极速": {"password": "u3capmir", "admin": "huanglingzhi02@corp.netease.com"}
 }
 
 # 固定资产类型
-ASSET_TYPES = ["游戏说明书", "KOL投放", "平台合作", "小喇叭", "舆情竞品监测"]
+ASSET_TYPES = ["游戏说明书", "KOL投放", "平台合作", "小喇叭运营", "小喇叭", "舆情竞品监测", "内容导量"]
 
 # 需要管理员权限上传的类型
-ADMIN_REQUIRED_TYPES = ["游戏说明书", "KOL投放", "平台合作", "小喇叭"]
+ADMIN_REQUIRED_TYPES = ["游戏说明书", "KOL投放", "平台合作", "小喇叭运营", "小喇叭", "内容导量"]
 
 # ========== GitHub 配置 ==========
 def get_github_config():
@@ -277,7 +277,7 @@ stats = get_statistics(assets)
 github_config = get_github_config()
 
 # ========== 侧边栏 ==========
-st.sidebar.title("🎨 内推广州品牌资产库")
+st.sidebar.title("🎨 【广州组】产品/品类资产知识库")
 st.sidebar.markdown(f"**资产总数: {len(assets)}**")
 
 if github_config:
@@ -400,47 +400,95 @@ if page == "📚 资产浏览":
     if not filtered:
         st.info("该产品暂无资产")
     else:
+        # 按资产类型分组展示（层级结构）
+        # 一级标题：资产类型
+        # 二级标题：具体资产
+        
+        # 按asset_type分组
+        assets_by_type = {}
         for asset in filtered:
-            name = asset.get('name', '未命名')
-            author = asset.get('author', '未知')
             atype = asset.get('asset_type', '未分类')
+            if atype not in assets_by_type:
+                assets_by_type[atype] = []
+            assets_by_type[atype].append(asset)
+        
+        # 定义资产类型的显示顺序
+        type_order = ["游戏说明书", "KOL投放", "平台合作", "小喇叭运营", "小喇叭", "舆情竞品监测", "内容导量", "未分类"]
+        sorted_types = [t for t in type_order if t in assets_by_type]
+        # 加上不在预定义顺序中的类型
+        for t in assets_by_type:
+            if t not in sorted_types:
+                sorted_types.append(t)
+        
+        # 按类型层级展示
+        for atype in sorted_types:
+            type_assets = assets_by_type[atype]
             
-            with st.expander(f"**{name}** - {author} ({atype})"):
-                st.markdown(f"**来源：** {asset.get('source', {}).get('campaign_name', '-')}")
-                st.markdown(f"**创建时间：** {asset.get('created_at', '-')}")
-                
-                # 原文件下载
-                original_file = asset.get('original_file', {})
-                if original_file:
-                    st.markdown("**原文件：**")
-                    render_file_download(original_file, name)
-                
-                st.markdown("**标签：**")
-                tags_html = "".join([f'<span class="tag-badge">{t}</span>' for t in asset.get('tags', [])])
-                st.markdown(tags_html, unsafe_allow_html=True)
-                
-                # 摘要
-                if asset.get('summary'):
-                    st.markdown("**摘要：**")
-                    st.markdown(asset.get('summary'))
-                
-                # HTML预览
-                if st.session_state.get(f'show_preview_{name}'):
-                    original_file = asset.get('original_file', {})
-                    if original_file:
-                        file_url = original_file.get('url', '')
-                        if 'github.com' in file_url and '/blob/' in file_url:
-                            parts = file_url.split('/blob/main/')
-                            if len(parts) > 1:
-                                file_path = parts[1]
-                                file_content = get_file_from_github(file_path)
-                                if file_content:
-                                    st.markdown("---")
-                                    st.markdown("**HTML预览：**")
-                                    st.components.v1.html(file_content.decode('utf-8'), height=600, scrolling=True)
-                
-                with st.expander("📄 查看完整数据"):
-                    st.code(yaml.dump(asset, allow_unicode=True, sort_keys=False), language="yaml")
+            # 一级标题：资产类型
+            with st.expander(f"📁 **{atype}** ({len(type_assets)}个)", expanded=False):
+                # 二级标题：具体资产列表
+                for asset in type_assets:
+                    name = asset.get('name', '未命名')
+                    author = asset.get('author', '未知')
+                    
+                    # 从名称中提取简短标题（如果有【】格式）
+                    if '】-【' in name:
+                        # 格式：【产品】-【类型】-标题
+                        # 提取标题部分
+                        parts = name.split('】-【')
+                        if len(parts) >= 3:
+                            short_title = parts[2].strip()
+                        else:
+                            short_title = name
+                    else:
+                        short_title = name
+                    
+                    with st.expander(f"📄 {short_title} - {author}"):
+                        st.markdown(f"**完整名称：** {name}")
+                        st.markdown(f"**来源：** {asset.get('source', {}).get('campaign_name', '-')}")
+                        st.markdown(f"**创建时间：** {asset.get('created_at', '-')}")
+                        
+                        # 占位状态提示
+                        if asset.get('status') == '占位待补充':
+                            st.warning("⚠️ 此资产为占位，内容待补充")
+                        
+                        # 原文件下载
+                        original_file = asset.get('original_file', {})
+                        if original_file:
+                            st.markdown("**原文件：**")
+                            render_file_download(original_file, name)
+                        else:
+                            if asset.get('status') != '占位待补充':
+                                st.markdown("**原文件：** 暂无")
+                        
+                        st.markdown("**标签：**")
+                        tags_html = "".join([f'<span class="tag-badge">{t}</span>' for t in asset.get('tags', [])])
+                        st.markdown(tags_html, unsafe_allow_html=True)
+                        
+                        # 摘要
+                        if asset.get('summary') and asset.get('summary') != '待补充':
+                            st.markdown("**摘要：**")
+                            st.markdown(asset.get('summary'))
+                        elif asset.get('status') == '占位待补充':
+                            st.markdown("**摘要：** 待补充")
+                        
+                        # HTML预览
+                        if st.session_state.get(f'show_preview_{name}'):
+                            original_file = asset.get('original_file', {})
+                            if original_file:
+                                file_url = original_file.get('url', '')
+                                if 'github.com' in file_url and '/blob/' in file_url:
+                                    parts = file_url.split('/blob/main/')
+                                    if len(parts) > 1:
+                                        file_path = parts[1]
+                                        file_content = get_file_from_github(file_path)
+                                        if file_content:
+                                            st.markdown("---")
+                                            st.markdown("**HTML预览：**")
+                                            st.components.v1.html(file_content.decode('utf-8'), height=600, scrolling=True)
+                        
+                        with st.expander("📄 查看完整数据"):
+                            st.code(yaml.dump(asset, allow_unicode=True, sort_keys=False), language="yaml")
 
 # ========== 页面：搜索资产（所有人可搜索，区分权限） ==========
 elif page == "🔍 搜索资产":
@@ -471,8 +519,16 @@ elif page == "🔍 搜索资产":
                 atype = asset.get('asset_type', '未分类')
                 has_permission = product in accessible
                 
+                # 判断名称是否是标准格式（包含【】）
+                if '】-【' in name:
+                    # 标准格式，不显示重复的产品/类型信息
+                    display_title = f"**{name}**"
+                else:
+                    # 非标准格式，显示产品/类型信息
+                    display_title = f"**{name}** ({product} | {atype})"
+                
                 if has_permission:
-                    with st.expander(f"✅ **{name}** ({product} | {atype})"):
+                    with st.expander(f"✅ {display_title}"):
                         st.markdown(f"**来源：** {asset.get('source', {}).get('campaign_name', '-')}")
                         st.markdown(f"**创建时间：** {asset.get('created_at', '-')}")
                         
@@ -488,7 +544,7 @@ elif page == "🔍 搜索资产":
                         with st.expander("📄 查看完整数据"):
                             st.code(yaml.dump(asset, allow_unicode=True, sort_keys=False), language="yaml")
                 else:
-                    with st.expander(f"🔒 **{name}** ({product} | {atype})"):
+                    with st.expander(f"🔒 {display_title}"):
                         st.warning(f"⚠️ 您没有 **{product}** 的访问权限")
                         if product in PRODUCT_CONFIG:
                             admin_email = PRODUCT_CONFIG[product]['admin']
@@ -509,8 +565,14 @@ elif page == "🔍 搜索资产":
                 atype = asset.get('asset_type', '未分类')
                 has_permission = product in accessible
                 
+                # 判断名称是否是标准格式（包含【】）
+                if '】-【' in name:
+                    display_title = f"**{name}**"
+                else:
+                    display_title = f"**{name}** ({product} | {atype})"
+                
                 if has_permission:
-                    with st.expander(f"✅ **{name}** ({product} | {atype})"):
+                    with st.expander(f"✅ {display_title}"):
                         st.markdown(f"**来源：** {asset.get('source', {}).get('campaign_name', '-')}")
                         st.markdown(f"**创建时间：** {asset.get('created_at', '-')}")
                         
@@ -523,7 +585,7 @@ elif page == "🔍 搜索资产":
                             st.markdown("**摘要：**")
                             st.markdown(asset.get('summary'))
                 else:
-                    with st.expander(f"🔒 **{name}** ({product} | {atype})"):
+                    with st.expander(f"🔒 {display_title}"):
                         st.warning(f"⚠️ 您没有 **{product}** 的访问权限")
                         if product in PRODUCT_CONFIG:
                             admin_email = PRODUCT_CONFIG[product]['admin']
@@ -661,6 +723,12 @@ elif page == "👥 权限说明":
     
     每个产品资产库独立，需要输入产品密码才能查看。
     
+    ### 👑 超级管理员
+    
+    可访问所有产品资产，无需输入产品密码：
+    - `guoyajun@corp.netease.com`
+    - `huanglingzhi02@corp.netease.com`
+    
     ### 🔑 产品管理员
     
     **需要管理员上传的资产类型：**
@@ -676,4 +744,4 @@ elif page == "👥 权限说明":
 
 # ========== 页脚 ==========
 st.markdown("---")
-st.markdown("<div style='text-align: center; color: #666;'>品牌资产共享库 v3.4 | 支持原文件直接下载</div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align: center; color: #666;'>【广州组】产品/品类资产知识库 v3.4 | 支持原文件直接下载</div>", unsafe_allow_html=True)
