@@ -1,5 +1,5 @@
 """
-【广州组】产品/品类资产知识库 
+【内推广州组】产品/品类资产知识库
 支持原文件直接下载
 """
 
@@ -15,7 +15,7 @@ from typing import Dict, List, Optional, Set
 
 # ========== 页面配置 ==========
 st.set_page_config(
-    page_title="【广州组】产品/品类资产知识库",
+    page_title="【内推广州组】产品/品类资产知识库",
     page_icon="🎨",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -277,7 +277,7 @@ stats = get_statistics(assets)
 github_config = get_github_config()
 
 # ========== 侧边栏 ==========
-st.sidebar.title("🎨 【广州组】产品/品类资产知识库")
+st.sidebar.title("🎨 【内推广州组】产品/品类资产知识库")
 st.sidebar.markdown(f"**资产总数: {len(assets)}**")
 
 if github_config:
@@ -744,4 +744,4 @@ elif page == "👥 权限说明":
 
 # ========== 页脚 ==========
 st.markdown("---")
-st.markdown("<div style='text-align: center; color: #666;'>【广州组】产品/品类资产知识库 v3.4 | 支持原文件直接下载</div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align: center; color: #666;'>【内推广州组】产品/品类资产知识库 v3.4 | 支持原文件直接下载</div>", unsafe_allow_html=True)
