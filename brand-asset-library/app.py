@@ -50,7 +50,7 @@ PRODUCT_CONFIG = {
     "梦幻西游手游": {"password": "0m2o8z5s", "admin": "linxiao03@corp.netease.com"},
     "明日之后": {"password": "j9n3jd3c", "admin": "yuetian01@corp.netease.com"},
     "率土之滨": {"password": "58ho9atd", "admin": "linxiao03@corp.netease.com"},
-    "光遇": {"password": "0mvn84pq", "admin": "huanglingzhi02@corp.netease.com"},
+    "光遇": {"password": "gy123", "admin": "huanglingzhi02@corp.netease.com"},
     "萤火突击": {"password": "tkvcnczy", "admin": "huangsuixin@corp.netease.com"},
     "阴阳师": {"password": "6t8ktxlu", "admin": "huanglingzhi02@corp.netease.com"},
     "世界之外": {"password": "vke6xtnk", "admin": "huangsuixin@corp.netease.com"},
