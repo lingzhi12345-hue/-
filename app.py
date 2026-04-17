@@ -116,10 +116,13 @@ if source_file:
             df_analysis = df.dropna(subset=['期数', '相对天数']).copy()
             df_analysis['相对天数'] = df_analysis['相对天数'].astype(int)
             
-            # 按天聚合数据（直接取原始值，不额外计算）
-            df_grouped = df_analysis.groupby(['期数', '相对天数', '绿灯周期']).agg({
-                '播放量': 'sum',
-                '供给量': 'sum',
+            # 去重：同一天只保留一条数据
+            df_analysis_unique = df_analysis.drop_duplicates(subset=['日期'], keep='first')
+            
+            # 按天聚合数据
+            df_grouped = df_analysis_unique.groupby(['期数', '相对天数', '绿灯周期']).agg({
+                '播放量': 'first',
+                '供给量': 'first',
                 '日期': 'first'
             }).reset_index()
             
@@ -145,7 +148,7 @@ if source_file:
             # 分别对两期计算日环比增幅
             df_final = pd.DataFrame()
             for period in df_grouped['期数'].unique():
-                period_data = df_grouped[df_grouped['期数'] == period].copy()
+                period_data = df_grouped[df_grouped['期数'] == period].copy().sort_values('相对天数')
                 period_data = calc_daily_growth(period_data, '播放量')
                 period_data = calc_daily_growth(period_data, '供给量')
                 df_final = pd.concat([df_final, period_data])
