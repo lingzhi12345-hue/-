@@ -41,14 +41,6 @@ def get_period_info(date):
     
     return None, None
 
-def fmt_play_count(val):
-    """
-    格式化播放量：转换为千万单位
-    """
-    if pd.isna(val):
-        return "-"
-    return f"{val / 10000000:.2f}"
-
 # --- 主程序 ---
 
 st.info("说明：上传文件后，数据将共享给所有访问此链接的人。刷新页面可查看他人最新上传的数据。")
@@ -148,12 +140,41 @@ if source_file:
             st.markdown("---")
             st.subheader("全周期播放量 & 供给量概览")
             
+            # 定义重要节点（从光遇知识库获取）
+            nodes = [
+                {"name": "第20期追光", "date": datetime(2026, 3, 9), "color": "#4CAF50"},
+                {"name": "第21期追光", "date": datetime(2026, 4, 10), "color": "#4CAF50"},
+                {"name": "愚人节彩蛋", "date": datetime(2026, 4, 1), "color": "#FFC107"},
+                {"name": "花憩节", "date": datetime(2026, 3, 20), "color": "#E91E63"},
+            ]
+            
             # 创建双轴图：柱状图(播放量) + 折线(供给量)
             fig_overview = go.Figure()
             
             # 获取两期数据，按日期排序
             p1_data = df_final[df_final['期数'] == '第一期'].sort_values('日期')
             p2_data = df_final[df_final['期数'] == '第二期'].sort_values('日期')
+            
+            # 获取数据日期范围
+            all_dates = df_final['日期'].sort_values()
+            min_date = all_dates.min()
+            max_date = all_dates.max()
+            
+            # 添加周末背景（周六+周日）
+            current = min_date
+            weekend_shapes = []
+            while current <= max_date:
+                if current.weekday() == 5:  # 周六
+                    weekend_shapes.append(dict(
+                        type="rect",
+                        xref="x", yref="paper",
+                        x0=current, x1=current + timedelta(days=2),
+                        y0=0, y1=1,
+                        fillcolor="rgba(200, 200, 200, 0.15)",
+                        layer="below",
+                        line_width=0
+                    ))
+                current += timedelta(days=1)
             
             # 第一期柱状图（播放量）
             if not p1_data.empty:
@@ -163,7 +184,7 @@ if source_file:
                     name='第一期播放量',
                     marker_color='rgba(31, 119, 180, 0.7)',
                     yaxis='y',
-                    hovertemplate='第一期 %{x|%Y-%m-%d}<br>播放量: %{y:.2f}千万<extra></extra>'
+                    hovertemplate='第一期 %{x|%m/%d}<br>播放量: %{y:.2f}千万<extra></extra>'
                 ))
                 
                 # 找峰值点
@@ -189,7 +210,7 @@ if source_file:
                     name='第二期播放量',
                     marker_color='rgba(255, 127, 14, 0.7)',
                     yaxis='y',
-                    hovertemplate='第二期 %{x|%Y-%m-%d}<br>播放量: %{y:.2f}千万<extra></extra>'
+                    hovertemplate='第二期 %{x|%m/%d}<br>播放量: %{y:.2f}千万<extra></extra>'
                 ))
                 
                 # 找峰值点
@@ -216,7 +237,7 @@ if source_file:
                     mode='lines',
                     line=dict(color='#1f77b4', width=2),
                     yaxis='y2',
-                    hovertemplate='第一期 %{x|%Y-%m-%d}<br>供给量: %{y:,}<extra></extra>'
+                    hovertemplate='第一期 %{x|%m/%d}<br>供给量: %{y:,}<extra></extra>'
                 ))
             
             # 第二期供给量折线
@@ -228,7 +249,7 @@ if source_file:
                     mode='lines',
                     line=dict(color='#ff7f0e', width=2, dash='dash'),
                     yaxis='y2',
-                    hovertemplate='第二期 %{x|%Y-%m-%d}<br>供给量: %{y:,}<extra></extra>'
+                    hovertemplate='第二期 %{x|%m/%d}<br>供给量: %{y:,}<extra></extra>'
                 ))
             
             # 设置双轴布局
@@ -253,10 +274,34 @@ if source_file:
                 template='plotly_white',
                 legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
                 barmode='group',
-                height=400
+                height=400,
+                shapes=weekend_shapes
             )
             
+            # 添加节点标注线（在layout之后添加）
+            for node in nodes:
+                if min_date <= node["date"] <= max_date:
+                    fig_overview.add_vline(
+                        x=node["date"], 
+                        line_width=1.5, 
+                        line_dash="dash", 
+                        line_color=node["color"],
+                        annotation_text=node["name"],
+                        annotation_position="top",
+                        annotation_font_size=9,
+                        annotation_font_color=node["color"]
+                    )
+            
             st.plotly_chart(fig_overview, use_container_width=True)
+            
+            # 节点说明
+            st.markdown("""
+            **图例说明：**
+            - 🟢 **绿色虚线**：追光计划开启（第20期：3/9，第21期：4/10）
+            - 🟡 **黄色虚线**：愚人节彩蛋（4/1）
+            - 🔴 **红色虚线**：花憩节（3/20）
+            - ⬜ **灰色背景**：周末
+            """)
             
             # ========== 分项趋势图 ==========
             st.markdown("---")
