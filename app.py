@@ -41,6 +41,23 @@ def get_period_info(date):
     
     return None, None
 
+def get_green_period(date):
+    """
+    判断日期属于哪个绿灯专区周期
+    返回："第一期绿灯"、"第二期绿灯"、"普通专区"
+    """
+    year = date.year
+    
+    # 第一期绿灯：2.1-2.28
+    if datetime(year, 2, 1) <= date <= datetime(year, 2, 28):
+        return "第一期绿灯"
+    
+    # 第二期绿灯：4.1至今
+    if datetime(year, 4, 1) <= date <= datetime(year, 4, 30):
+        return "第二期绿灯"
+    
+    return "普通专区"
+
 # --- 主程序 ---
 
 st.info("说明：上传文件后，数据将共享给所有访问此链接的人。刷新页面可查看他人最新上传的数据。")
@@ -92,17 +109,20 @@ if source_file:
             # 3. 计算期数和相对天数
             df[['期数', '相对天数']] = df['日期'].apply(lambda x: pd.Series(get_period_info(x)))
             
+            # 判断绿灯周期
+            df['绿灯周期'] = df['日期'].apply(get_green_period)
+            
             # 过滤掉不属于任何一期的数据
             df_analysis = df.dropna(subset=['期数', '相对天数']).copy()
             df_analysis['相对天数'] = df_analysis['相对天数'].astype(int)
             
             # 按天聚合数据
-            df_grouped = df_analysis.groupby(['期数', '相对天数'])[['播放量', '供给量']].sum().reset_index()
+            df_grouped = df_analysis.groupby(['期数', '相对天数', '绿灯周期'])[['播放量', '供给量']].sum().reset_index()
             
             # 添加原始日期用于显示
             df_grouped = df_grouped.merge(
-                df_analysis[['期数', '相对天数', '日期']].drop_duplicates(),
-                on=['期数', '相对天数'],
+                df_analysis[['期数', '相对天数', '日期', '绿灯周期']].drop_duplicates(),
+                on=['期数', '相对天数', '绿灯周期'],
                 how='left'
             )
             
@@ -140,117 +160,79 @@ if source_file:
             st.markdown("---")
             st.subheader("全周期播放量 & 供给量概览")
             
-            # 定义重要节点（从光遇知识库获取）
-            nodes = [
-                {"name": "第20期追光", "date": datetime(2026, 3, 9), "color": "#4CAF50"},
-                {"name": "第21期追光", "date": datetime(2026, 4, 10), "color": "#4CAF50"},
-                {"name": "愚人节彩蛋", "date": datetime(2026, 4, 1), "color": "#FFC107"},
-                {"name": "花憩节", "date": datetime(2026, 3, 20), "color": "#E91E63"},
-            ]
-            
             # 创建双轴图：柱状图(播放量) + 折线(供给量)
             fig_overview = go.Figure()
             
-            # 获取两期数据，按日期排序
-            p1_data = df_final[df_final['期数'] == '第一期'].sort_values('日期')
-            p2_data = df_final[df_final['期数'] == '第二期'].sort_values('日期')
-            
             # 获取数据日期范围
             all_dates = df_final['日期'].sort_values()
-            min_date = all_dates.min()
-            max_date = all_dates.max()
+            min_date = pd.Timestamp(all_dates.min()).to_pydatetime()
+            max_date = pd.Timestamp(all_dates.max()).to_pydatetime()
             
             # 添加周末背景（周六+周日）
-            current = min_date
             weekend_shapes = []
+            current = min_date
             while current <= max_date:
                 if current.weekday() == 5:  # 周六
                     weekend_shapes.append(dict(
                         type="rect",
                         xref="x", yref="paper",
-                        x0=current, x1=current + timedelta(days=2),
+                        x0=current, 
+                        x1=current + timedelta(days=2),
                         y0=0, y1=1,
-                        fillcolor="rgba(200, 200, 200, 0.15)",
+                        fillcolor="rgba(200, 200, 200, 0.2)",
                         layer="below",
                         line_width=0
                     ))
-                current += timedelta(days=1)
+                current = current + timedelta(days=1)
             
-            # 第一期柱状图（播放量）
-            if not p1_data.empty:
-                fig_overview.add_trace(go.Bar(
-                    x=p1_data['日期'],
-                    y=p1_data['播放量_千万'],
-                    name='第一期播放量',
-                    marker_color='rgba(31, 119, 180, 0.7)',
-                    yaxis='y',
-                    hovertemplate='第一期 %{x|%m/%d}<br>播放量: %{y:.2f}千万<extra></extra>'
-                ))
-                
-                # 找峰值点
-                p1_peak_idx = p1_data['播放量_千万'].idxmax()
-                p1_peak = p1_data.loc[p1_peak_idx]
-                fig_overview.add_trace(go.Scatter(
-                    x=[p1_peak['日期']],
-                    y=[p1_peak['播放量_千万']],
-                    mode='markers+text',
-                    marker=dict(size=15, color='#1f77b4', symbol='star'),
-                    text=['峰值'],
-                    textposition='top center',
-                    name='第一期峰值',
-                    yaxis='y',
-                    showlegend=False
-                ))
+            # 颜色映射
+            color_map = {
+                "第一期绿灯": "#1f77b4",  # 蓝色
+                "第二期绿灯": "#ff7f0e",  # 橙色
+                "普通专区": "#7f7f7f"     # 灰色
+            }
             
-            # 第二期柱状图（播放量）
-            if not p2_data.empty:
-                fig_overview.add_trace(go.Bar(
-                    x=p2_data['日期'],
-                    y=p2_data['播放量_千万'],
-                    name='第二期播放量',
-                    marker_color='rgba(255, 127, 14, 0.7)',
-                    yaxis='y',
-                    hovertemplate='第二期 %{x|%m/%d}<br>播放量: %{y:.2f}千万<extra></extra>'
-                ))
-                
-                # 找峰值点
-                p2_peak_idx = p2_data['播放量_千万'].idxmax()
-                p2_peak = p2_data.loc[p2_peak_idx]
-                fig_overview.add_trace(go.Scatter(
-                    x=[p2_peak['日期']],
-                    y=[p2_peak['播放量_千万']],
-                    mode='markers+text',
-                    marker=dict(size=15, color='#ff7f0e', symbol='star'),
-                    text=['峰值'],
-                    textposition='top center',
-                    name='第二期峰值',
-                    yaxis='y',
-                    showlegend=False
-                ))
+            # 按绿灯周期分组绘制柱状图
+            for green_period in ["第一期绿灯", "普通专区", "第二期绿灯"]:
+                subset = df_final[df_final['绿灯周期'] == green_period].sort_values('日期')
+                if not subset.empty:
+                    fig_overview.add_trace(go.Bar(
+                        x=subset['日期'],
+                        y=subset['播放量_千万'],
+                        name=green_period,
+                        marker_color=color_map[green_period],
+                        yaxis='y',
+                        hovertemplate=f'{green_period} %{{x|%m/%d}}<br>播放量: %{{y:.2f}}千万<extra></extra>'
+                    ))
+                    
+                    # 找峰值点（只标注两期绿灯的峰值）
+                    if green_period in ["第一期绿灯", "第二期绿灯"]:
+                        peak_idx = subset['播放量_千万'].idxmax()
+                        if pd.notna(peak_idx):
+                            peak = subset.loc[peak_idx]
+                            fig_overview.add_trace(go.Scatter(
+                                x=[peak['日期']],
+                                y=[peak['播放量_千万']],
+                                mode='markers+text',
+                                marker=dict(size=12, color=color_map[green_period], symbol='star'),
+                                text=['峰值'],
+                                textposition='top center',
+                                name=f'{green_period}峰值',
+                                yaxis='y',
+                                showlegend=False
+                            ))
             
-            # 第一期供给量折线
-            if not p1_data.empty:
-                fig_overview.add_trace(go.Scatter(
-                    x=p1_data['日期'],
-                    y=p1_data['供给量'],
-                    name='第一期供给量',
-                    mode='lines',
-                    line=dict(color='#1f77b4', width=2),
-                    yaxis='y2',
-                    hovertemplate='第一期 %{x|%m/%d}<br>供给量: %{y:,}<extra></extra>'
-                ))
-            
-            # 第二期供给量折线
-            if not p2_data.empty:
-                fig_overview.add_trace(go.Scatter(
-                    x=p2_data['日期'],
-                    y=p2_data['供给量'],
-                    name='第二期供给量',
-                    mode='lines',
-                    line=dict(color='#ff7f0e', width=2, dash='dash'),
-                    yaxis='y2',
-                    hovertemplate='第二期 %{x|%m/%d}<br>供给量: %{y:,}<extra></extra>'
-                ))
+            # 供给量：连续一条线，不分期数
+            all_data_sorted = df_final.sort_values('日期')
+            fig_overview.add_trace(go.Scatter(
+                x=all_data_sorted['日期'],
+                y=all_data_sorted['供给量'],
+                name='供给量',
+                mode='lines',
+                line=dict(color='#2ca02c', width=2),
+                yaxis='y2',
+                hovertemplate='%{x|%m/%d}<br>供给量: %{y:,}<extra></extra>'
+            ))
             
             # 设置双轴布局
             fig_overview.update_layout(
@@ -265,8 +247,8 @@ if source_file:
                     side='left'
                 ),
                 yaxis2=dict(
-                    title=dict(text='供给量', font=dict(color='#666')),
-                    tickfont=dict(color='#666'),
+                    title=dict(text='供给量', font=dict(color='#2ca02c')),
+                    tickfont=dict(color='#2ca02c'),
                     side='right',
                     overlaying='y'
                 ),
@@ -278,29 +260,16 @@ if source_file:
                 shapes=weekend_shapes
             )
             
-            # 添加节点标注线（在layout之后添加）
-            for node in nodes:
-                if min_date <= node["date"] <= max_date:
-                    fig_overview.add_vline(
-                        x=node["date"], 
-                        line_width=1.5, 
-                        line_dash="dash", 
-                        line_color=node["color"],
-                        annotation_text=node["name"],
-                        annotation_position="top",
-                        annotation_font_size=9,
-                        annotation_font_color=node["color"]
-                    )
-            
             st.plotly_chart(fig_overview, use_container_width=True)
             
-            # 节点说明
+            # 图例说明
             st.markdown("""
             **图例说明：**
-            - 🟢 **绿色虚线**：追光计划开启（第20期：3/9，第21期：4/10）
-            - 🟡 **黄色虚线**：愚人节彩蛋（4/1）
-            - 🔴 **红色虚线**：花憩节（3/20）
-            - ⬜ **灰色背景**：周末
+            - 🔵 **蓝色柱**：第一期绿灯专区（2/1-2/28）
+            - 🟠 **橙色柱**：第二期绿灯专区（4/1至今）
+            - ⬜ **灰色柱**：普通专区（无绿灯增益）
+            - 🟢 **绿色线**：供给量
+            - ⬛ **灰色背景**：周末
             """)
             
             # ========== 分项趋势图 ==========
@@ -379,7 +348,7 @@ if source_file:
             # 7. 数据预览
             with st.expander("查看处理后的详细数据"):
                 # 格式化显示
-                display_df = df_final[['期数', '相对天数', '日期', '播放量', '播放量_千万', '播放量_日环比增幅', '供给量', '供给量_日环比增幅']].copy()
+                display_df = df_final[['期数', '相对天数', '绿灯周期', '日期', '播放量', '播放量_千万', '播放量_日环比增幅', '供给量', '供给量_日环比增幅']].copy()
                 display_df['日期'] = display_df['日期'].dt.strftime('%Y-%m-%d')
                 display_df['播放量'] = display_df['播放量'].apply(lambda x: f"{x:,.0f}")
                 display_df['播放量_千万'] = display_df['播放量_千万'].apply(lambda x: f"{x:.2f}")
