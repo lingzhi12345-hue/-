@@ -264,11 +264,6 @@ if source_file:
             
             # 图例说明
             st.markdown("""
-            **图例说明：**
-            - 🔵 **蓝色柱**：第一期绿灯专区（2/1-2/28）
-            - 🟠 **橙色柱**：第二期绿灯专区（4/1至今）
-            - ⬜ **灰色柱**：普通专区（无绿灯增益）
-            - 🟢 **绿色线**：供给量
             - ⬛ **灰色背景**：周末
             """)
             
@@ -322,30 +317,7 @@ if source_file:
                 plot_chart(df_final, '供给量', '供给量趋势对比')
                 plot_chart(df_final, '供给量_日环比增幅', '供给量日环比增幅', is_percentage=True)
             
-            # 6. 关键数据展示
-            st.markdown("---")
-            st.subheader("关键数据检查")
-            
-            # 第二期绿灯开启第一天（Day 0 = 4月1日）
-            p2_day0 = df_final[(df_final['期数'] == '第二期') & (df_final['相对天数'] == 0)]
-            p2_day_minus1 = df_final[(df_final['期数'] == '第二期') & (df_final['相对天数'] == -1)]
-            
-            if not p2_day0.empty and not p2_day_minus1.empty:
-                st.markdown("**第二期绿灯开启情况（4月1日）**")
-                
-                day0_play = p2_day0['播放量'].values[0]
-                day_minus1_play = p2_day_minus1['播放量'].values[0]
-                day0_growth = p2_day0['播放量_日环比增幅'].values[0]
-                
-                col_a, col_b, col_c = st.columns(3)
-                with col_a:
-                    st.metric("4月1日播放量", f"{day0_play/10000000:.2f}千万", f"{day0_play/10000:.0f}万")
-                with col_b:
-                    st.metric("3月31日播放量", f"{day_minus1_play/10000000:.2f}千万", f"{day_minus1_play/10000:.0f}万")
-                with col_c:
-                    st.metric("日环比增幅", f"{day0_growth*100:+.1f}%")
-            
-            # 7. 数据预览
+            # 6. 数据预览
             with st.expander("查看处理后的详细数据"):
                 # 格式化显示
                 display_df = df_final[['期数', '相对天数', '绿灯周期', '日期', '播放量', '播放量_千万', '播放量_日环比增幅', '供给量', '供给量_日环比增幅']].copy()
