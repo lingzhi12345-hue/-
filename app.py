@@ -144,6 +144,122 @@ if source_file:
             # 播放量转换为千万单位
             df_final['播放量_千万'] = df_final['播放量'] / 10000000
             
+            # ========== 全周期概览板块 ==========
+            st.markdown("---")
+            st.subheader("全周期播放量 & 供给量概览")
+            
+            # 创建双轴图：柱状图(播放量) + 折线(供给量)
+            fig_overview = go.Figure()
+            
+            # 获取两期数据
+            p1_data = df_final[df_final['期数'] == '第一期'].sort_values('相对天数')
+            p2_data = df_final[df_final['期数'] == '第二期'].sort_values('相对天数')
+            
+            # 第一期柱状图（播放量）
+            if not p1_data.empty:
+                fig_overview.add_trace(go.Bar(
+                    x=p1_data['相对天数'],
+                    y=p1_data['播放量_千万'],
+                    name='第一期播放量',
+                    marker_color='rgba(31, 119, 180, 0.7)',
+                    yaxis='y',
+                    offsetgroup=1,
+                    hovertemplate='第一期 Day %{x}<br>播放量: %{y:.2f}千万<extra></extra>'
+                ))
+                
+                # 找峰值点
+                p1_peak_idx = p1_data['播放量_千万'].idxmax()
+                p1_peak = p1_data.loc[p1_peak_idx]
+                fig_overview.add_trace(go.Scatter(
+                    x=[p1_peak['相对天数']],
+                    y=[p1_peak['播放量_千万']],
+                    mode='markers+text',
+                    marker=dict(size=15, color='#1f77b4', symbol='star'),
+                    text=['峰值'],
+                    textposition='top center',
+                    name='第一期峰值',
+                    yaxis='y',
+                    showlegend=False
+                ))
+            
+            # 第二期柱状图（播放量）
+            if not p2_data.empty:
+                fig_overview.add_trace(go.Bar(
+                    x=p2_data['相对天数'],
+                    y=p2_data['播放量_千万'],
+                    name='第二期播放量',
+                    marker_color='rgba(255, 127, 14, 0.7)',
+                    yaxis='y',
+                    offsetgroup=2,
+                    hovertemplate='第二期 Day %{x}<br>播放量: %{y:.2f}千万<extra></extra>'
+                ))
+                
+                # 找峰值点
+                p2_peak_idx = p2_data['播放量_千万'].idxmax()
+                p2_peak = p2_data.loc[p2_peak_idx]
+                fig_overview.add_trace(go.Scatter(
+                    x=[p2_peak['相对天数']],
+                    y=[p2_peak['播放量_千万']],
+                    mode='markers+text',
+                    marker=dict(size=15, color='#ff7f0e', symbol='star'),
+                    text=['峰值'],
+                    textposition='top center',
+                    name='第二期峰值',
+                    yaxis='y',
+                    showlegend=False
+                ))
+            
+            # 第一期供给量折线
+            if not p1_data.empty:
+                fig_overview.add_trace(go.Scatter(
+                    x=p1_data['相对天数'],
+                    y=p1_data['供给量'],
+                    name='第一期供给量',
+                    mode='lines',
+                    line=dict(color='#1f77b4', width=2),
+                    yaxis='y2',
+                    hovertemplate='第一期 Day %{x}<br>供给量: %{y:,}<extra></extra>'
+                ))
+            
+            # 第二期供给量折线
+            if not p2_data.empty:
+                fig_overview.add_trace(go.Scatter(
+                    x=p2_data['相对天数'],
+                    y=p2_data['供给量'],
+                    name='第二期供给量',
+                    mode='lines',
+                    line=dict(color='#ff7f0e', width=2, dash='dash'),
+                    yaxis='y2',
+                    hovertemplate='第二期 Day %{x}<br>供给量: %{y:,}<extra></extra>'
+                ))
+            
+            # 设置双轴布局
+            fig_overview.update_layout(
+                xaxis=dict(title='相对天数 (Day 0 = 绿灯专区开始日期)'),
+                yaxis=dict(
+                    title=dict(text='播放量(千万)', font=dict(color='#333')),
+                    tickfont=dict(color='#333'),
+                    side='left'
+                ),
+                yaxis2=dict(
+                    title=dict(text='供给量', font=dict(color='#666')),
+                    tickfont=dict(color='#666'),
+                    side='right',
+                    overlaying='y'
+                ),
+                hovermode='x unified',
+                template='plotly_white',
+                legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+                barmode='group',
+                height=400
+            )
+            
+            st.plotly_chart(fig_overview, use_container_width=True)
+            
+            # ========== 分项趋势图 ==========
+            st.markdown("---")
+            st.subheader("分项趋势对比")
+            
             # 5. 绘图
             def plot_chart(data, y_col, title, is_percentage=False, y_title=None):
                 fig = go.Figure()
